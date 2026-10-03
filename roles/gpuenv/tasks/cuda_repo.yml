@@ -28,10 +28,42 @@
     done
   changed_when: false
 
-- name: 刷新软件源缓存（瞬时网络抖动自动重试）
-  apt:
-    update_cache: yes
-  register: cuda_repo_apt_update
-  until: cuda_repo_apt_update is success
-  retries: 4
-  delay: 15
+- name: 刷新软件源缓存（先用现有源，阿里云 Docker 源失败再切清华源）
+  block:
+    - name: 刷新软件源缓存（瞬时网络抖动自动重试）
+      apt:
+        update_cache: yes
+      register: cuda_repo_apt_update
+      until: cuda_repo_apt_update is success
+      retries: 4
+      delay: 15
+  rescue:
+    - name: 非阿里云 Docker 源失败则直接报错
+      fail:
+        msg: "{{ cuda_repo_apt_update.msg | default('apt update failed') }}"
+      when: "'mirrors.aliyun.com/docker-ce' not in (cuda_repo_apt_update.msg | default(''))"
+
+    - name: 列出 apt 源文件
+      find:
+        paths: /etc/apt/sources.list.d
+        patterns: '*'
+      register: apt_source_files
+
+    - name: 阿里云 Docker 源改为清华源
+      replace:
+        path: "{{ item }}"
+        regexp: 'https?://mirrors\.aliyun\.com/docker-ce'
+        replace: 'https://mirrors.tuna.tsinghua.edu.cn/docker-ce'
+      loop: "{{ apt_source_files.files | map(attribute='path') | list + ['/etc/apt/sources.list'] }}"
+
+    - name: 删除阿里云 Docker 旧索引
+      shell: rm -f /var/lib/apt/lists/*mirrors.aliyun.com_docker-ce*
+      changed_when: false
+
+    - name: 使用清华源刷新软件源缓存
+      apt:
+        update_cache: yes
+      register: cuda_repo_apt_update
+      until: cuda_repo_apt_update is success
+      retries: 2
+      delay: 10

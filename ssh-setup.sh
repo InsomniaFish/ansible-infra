@@ -2,7 +2,7 @@
 set -euo pipefail
 
 # SSH 免密配置脚本（无需 Ansible）
-# - 从 inventory.ini ([gpu_nodes:vars]) 读取 ansible_user/ansible_password
+# - 主机行 ansible_user/ansible_password 优先，否则用 [gpu_nodes:vars]
 # - 从 [gpu_nodes] 读取主机列表
 # - 跳过 ansible_connection=local 的主机
 # - 生成本机 SSH 密钥（如不存在），并分发公钥到远程主机实现免密登录
@@ -154,10 +154,6 @@ main() {
   # 组级用户/密码作为默认值（可被主机级 ansible_user/ansible_password 覆盖）
   local group_user="${ANSIBLE_USER:-$(get_group_var ansible_user)}"
   local group_pass="${ANSIBLE_PASSWORD:-$(get_group_var ansible_password)}"
-  if [[ -z "${group_user:-}" ]]; then
-    echo "ERROR: 无法从 $INV_FILE 读取 ansible_user（组级或主机级）" >&2
-    exit 3
-  fi
 
   # --check 模式：仅验证免密是否已生效
   if [[ "${1:-}" == "--check" ]]; then
@@ -207,8 +203,8 @@ main() {
     fi
 
     # 无可用密码时无法分发
-    if [[ -z "$pass" ]]; then
-      echo "   FAILED: 未配置该主机的密码（主机级或组级 ansible_password 均为空）" >&2
+    if [[ -z "$user" || -z "$pass" ]]; then
+      echo "   FAILED: 未配置该主机的 ansible_user/ansible_password" >&2
       failures=$((failures+1))
       continue
     fi

@@ -311,6 +311,8 @@
   register: doca_apt_update
   changed_when: false
   failed_when: false
+  args:
+    warn: false
   when:
     - gpuenv_ofed_flavor == 'doca_ofed'
     - gpuenv_ofed_install_mode == 'online'
