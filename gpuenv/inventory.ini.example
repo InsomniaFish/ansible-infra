@@ -1,0 +1,33 @@
+#===============================================================================
+# GPU 节点清单模板
+#
+#   cp inventory.ini.example inventory.ini
+#   ansible -i inventory.ini gpu_nodes -m ping
+#   ansible-playbook -i inventory.ini site.yml
+#   ./ssh-setup.sh
+#
+# 凭据：主机行 ansible_user / ansible_password 覆盖下面的组变量。
+# 密码相同只写组变量；不同就写在对应主机行，组级 ansible_password 可省略。
+# ansible_connection=local 在本机执行，不走 SSH，该行密码不会被使用。
+#===============================================================================
+
+# 别名 ansible_host=IP [ansible_user= ansible_password= ansible_port= ansible_connection=local]
+# 也可在主机行覆盖 gpuenv_driver_version / gpuenv_cuda_version
+[gpu_nodes]
+# master01 ansible_host=192.168.48.100 ansible_connection=local
+# node01   ansible_host=192.168.48.101
+# node02   ansible_host=192.168.48.102 ansible_user=root ansible_password=该主机密码
+# node03   ansible_host=192.168.48.103 gpuenv_driver_version=535.183.01 gpuenv_cuda_version=12.4
+
+# 组变量：主机行没写的项用这里的值
+[gpu_nodes:vars]
+ansible_user=root
+# 各主机密码相同时取消注释；已在主机行分别指定则可保持注释
+# ansible_password=你的密码
+# 免密完成后可改用密钥（默认 ~/.ssh/id_rsa，一般不用写）
+# ansible_ssh_private_key_file=/root/.ssh/id_rsa
+ansible_ssh_common_args='-o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null'
+# 非 root 时提权
+# ansible_become=true
+# ansible_become_method=sudo
+# ansible_become_password=sudo密码

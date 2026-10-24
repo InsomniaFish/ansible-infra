@@ -1,0 +1,69 @@
+---
+# 步骤 3：配置 NVIDIA 官方 CUDA 软件源（安装 cuda-keyring）
+
+- name: 检查 cuda-keyring 是否已安装
+  command: dpkg-query -W -f='${db:Status-Abbrev}' cuda-keyring
+  register: keyring_status
+  changed_when: false
+  failed_when: false
+
+- name: 下载 cuda-keyring 软件源密钥包
+  get_url:
+    url: "{{ gpuenv_repo_base_url }}/{{ gpuenv_keyring_deb }}"
+    dest: "{{ gpuenv_pkg_dir }}/cuda-keyring.deb"
+    mode: '0644'
+  when: gpuenv_force or keyring_status.rc != 0 or not (keyring_status.stdout | trim).startswith('ii')
+
+- name: 安装 cuda-keyring
+  apt:
+    deb: "{{ gpuenv_pkg_dir }}/cuda-keyring.deb"
+  when: gpuenv_force or keyring_status.rc != 0 or not (keyring_status.stdout | trim).startswith('ii')
+
+# 注意：安装完成后保留 {{ gpuenv_pkg_dir }}/cuda-keyring.deb 安装包，不做删除
+
+- name: 等待 apt/dpkg 锁释放（避免 unattended-upgrades 等进程占用导致失败）
+  shell: |
+    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1        || fuser /var/lib/dpkg/lock >/dev/null 2>&1        || fuser /var/lib/apt/lists/lock >/dev/null 2>&1; do
+      sleep 5
+    done
+  changed_when: false
+
+- name: 刷新软件源缓存（先用现有源，阿里云 Docker 源失败再切清华源）
+  block:
+    - name: 刷新软件源缓存（瞬时网络抖动自动重试）
+      apt:
+        update_cache: yes
+      register: cuda_repo_apt_update
+      until: cuda_repo_apt_update is success
+      retries: 4
+      delay: 15
+  rescue:
+    - name: 非阿里云 Docker 源失败则直接报错
+      fail:
+        msg: "{{ cuda_repo_apt_update.msg | default('apt update failed') }}"
+      when: "'mirrors.aliyun.com/docker-ce' not in (cuda_repo_apt_update.msg | default(''))"
+
+    - name: 列出 apt 源文件
+      find:
+        paths: /etc/apt/sources.list.d
+        patterns: '*'
+      register: apt_source_files
+
+    - name: 阿里云 Docker 源改为清华源
+      replace:
+        path: "{{ item }}"
+        regexp: 'https?://mirrors\.aliyun\.com/docker-ce'
+        replace: 'https://mirrors.tuna.tsinghua.edu.cn/docker-ce'
+      loop: "{{ apt_source_files.files | map(attribute='path') | list + ['/etc/apt/sources.list'] }}"
+
+    - name: 删除阿里云 Docker 旧索引
+      shell: rm -f /var/lib/apt/lists/*mirrors.aliyun.com_docker-ce*
+      changed_when: false
+
+    - name: 使用清华源刷新软件源缓存
+      apt:
+        update_cache: yes
+      register: cuda_repo_apt_update
+      until: cuda_repo_apt_update is success
+      retries: 2
+      delay: 10

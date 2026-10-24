@@ -1,0 +1,88 @@
+---
+#===============================================================================
+# 软件源与版本配置（独立维护，便于指定/切换版本）
+# 由 site.yml 通过 vars_files 加载，优先级高于 role defaults，
+# 命令行 -e 参数可临时覆盖本文件中的值。
+#
+# 组件选择与安装模式：
+#   - 默认不安装任何组件，推荐在 vars/deploy.yml 配置清单中指定，
+#     也可通过 -e gpuenv_install_<组件>=true 显式指定（-e 优先级更高）
+#   - 每个组件均支持两种模式：-e gpuenv_<组件>_install_mode=online|package
+#       online ：在线安装（apt 官方源 / 官方直链下载）
+#       package：离线安装（通过 -e gpuenv_<组件>_package=<本地包路径> 指定安装包）
+#===============================================================================
+
+# --- 源 URL 配置 ---
+# NVIDIA CUDA 官方软件源基础地址（驱动 / CUDA / fabricmanager / NCCL / DCGM 均来自该源）
+#   - 当前已使用国内镜像 developer.download.nvidia.cn（与海外源内容一致）
+#   - 其他系统：ubuntu2204 可改为 ubuntu2004 / ubuntu2404 等
+gpuenv_repo_base_url: "https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64"
+
+# cuda-keyring 软件源密钥包文件名（与 gpuenv_repo_base_url 拼接为完整下载地址）
+gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
+
+# gpu-burn 源码下载地址（online 模式）
+#   - 指定版本：将 master 改为对应 tag，例如
+#     https://github.com/wilicc/gpu-burn/archive/refs/tags/v1.1.zip
+gpuenv_gpu_burn_url: "https://ghproxy.net/https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
+
+# --- 版本配置（默认基线，与 vars/deploy.yml 当前部署版本一致） ---
+gpuenv_driver_version: "580.105.08"   # NVIDIA 驱动版本
+gpuenv_cuda_version: "13.0.2"          # CUDA Toolkit 版本
+gpuenv_fm_version: ""                  # fabricmanager 版本，留空则与驱动一致
+gpuenv_nccl_version: "2.28.9"          # NCCL 版本（需与 CUDA 版本配套，如 2.28.9-1+cuda13.0）
+gpuenv_nvshmem_version: "3.7.2"        # NVSHMEM 版本（online 按此拼接引导 deb URL；apt 包名随 CUDA 大版本，如 nvshmem-cuda-13）
+
+# --- CUDA 离线安装包（仅 package 模式） ---
+# 本地路径或 URL，默认官方直链
+# 注意：run 包文件名中的驱动版本（560.35.03）与 gpuenv_driver_version 可能不同，
+# 其他 CUDA 版本需按官方归档页调整：https://developer.nvidia.com/cuda-toolkit-archive
+gpuenv_cuda_package: "https://developer.download.nvidia.cn/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run"
+
+# --- 可选组件源配置 ---
+# NVSHMEM 官方下载基址（.cn 国内镜像，与 CUDA 源同域）：
+#   引导 deb 按 <base>/<版本>/local_installers/nvshmem-local-repo-ubuntu2204-<版本>_<版本>-1_amd64.deb 拼接
+gpuenv_nvshmem_repo_base: "https://developer.download.nvidia.cn/compute/nvshmem"
+# NCCL 官方下载页（离线 deb 包备用获取渠道，按 CUDA 版本选择对应包）：
+#   https://developer.nvidia.com/nccl/nccl-download
+#   官方 deb 直链格式（ ubuntu2204 / x86_64，可能重定向到国内镜像）：
+#   注意：实际直链位于 cuda 仓库目录（非 nccl 专用目录），见下
+gpuenv_nccl_download_page: "https://developer.nvidia.com/nccl/nccl-download"
+
+# nccl-tests 源码下载地址（online 模式，多卡带宽测试）
+#   - 指定版本：将 master 改为对应 tag，例如 refs/tags/v2.13.1.zip
+gpuenv_nccl_tests_url: "https://ghproxy.net/https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"
+
+# OpenMPI 源码下载地址（需源码编译安装）
+# 官方下载页：https://www.open-mpi.org/software/ompi/v4.1/
+gpuenv_openmpi_version: "4.1.7"
+gpuenv_openmpi_url: "https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.7.tar.gz"
+# 备用直链（已验证可用，切换版本时替换版本号即可）：
+#   4.1.5：https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.5.tar.gz
+# 国内镜像备选（需自行验证可用性）：
+#   https://mirrors.aliyun.com/openmpi/ 或华为云/清华开源镜像站搜索 openmpi
+
+# --- IB 网络（须先于 GPU 驱动安装；flavor 二选一） ---
+# gpuenv_ofed_flavor：mlnx_ofed / doca_ofed（详见 vars/deploy.yml OFED 组件块说明）
+#
+# flavor = mlnx_ofed：
+#   - online【apt】：安装 Ubuntu 原生 RDMA 栈（rdma-core 等，内核自带 mlx5 驱动；
+#     MLNX_OFED 官方 apt 仓库实测无法直接 apt 拉取）
+#   - package【tgz】：MLNX_OFED 安装器，离线地址 gpuenv_ofed_package（本地路径或 URL），
+#     默认官方直链（23.10-2.1.3.1），其他版本按规则拼接：
+#     https://content.mellanox.com/ofed/MLNX_OFED-<版本>/MLNX_OFED_LINUX-<版本>-ubuntu22.04-x86_64.tgz
+#     官方下载页：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
+#
+# flavor = doca_ofed（DOCA-Host，MLNX_OFED 继任者，同驱动/库/工具）：
+#   - online【URL+apt】：无需配置在线地址——按 gpuenv_ofed_version（DOCA 发行版本，如 3.2.2）
+#     自动下载 GPG 密钥并配置 DOCA 官方源（<base>/<DOCA版本>/ubuntu22.04/x86_64/），
+#     再 apt 安装 doca-ofed 元包（等价官方 doca-host_<版本>-ubuntu2204_amd64.deb 引导方式）
+#   - package【deb 目录】：离线地址 gpuenv_ofed_package = 本地目录（doca-ofed 元包及全部依赖 deb，
+#     可从下方 DOCA 官方源目录全量下载）
+#   官方下载页：https://network.nvidia.com/products/doca-host/
+gpuenv_ofed_flavor: "mlnx_ofed"
+# 版本语义：mlnx_ofed=OFED 版本（ofed_info 校验）/ doca_ofed=DOCA 发行版本（如 3.2.2）
+gpuenv_ofed_version: "23.10-2.1.3.1"
+gpuenv_ofed_package: "https://content.mellanox.com/ofed/MLNX_OFED-23.10-2.1.3.1/MLNX_OFED_LINUX-23.10-2.1.3.1-ubuntu22.04-x86_64.tgz"
+# DOCA 官方源基址（doca_ofed 专用）：repo 按版本拼接 <base>/<DOCA版本>/ubuntu22.04/x86_64/
+gpuenv_doca_repo_base: "https://linux.mellanox.com/public/repo/doca"

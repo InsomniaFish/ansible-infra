@@ -1,0 +1,234 @@
+---
+#===============================================================================
+# GPUENV_CHECK role：检测 GPU 环境组件安装状况（只读，不做任何修改）
+# 检测项：编译依赖 / cuda-keyring / 驱动 / CUDA / fabricmanager / gpu-burn /
+#         NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED(RDMA) /
+#         nvidia_peermem / PCI ACS
+#===============================================================================
+
+- name: 收集已安装的 nvidia / cuda 相关软件包
+  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda)" | awk '{print $2, $3}' || true
+  register: check_pkgs
+  changed_when: false
+
+- name: 检查 gcc 是否可用
+  command: gcc --version
+  register: check_gcc
+  changed_when: false
+  failed_when: false
+
+- name: 检查 cuda-keyring 安装状态
+  shell: dpkg-query -W -f='${db:Status-Abbrev} ${Version}' cuda-keyring 2>/dev/null || echo "未安装"
+  register: check_keyring
+  changed_when: false
+
+- name: 检查 nvidia-smi 输出
+  command: nvidia-smi
+  register: check_nvidia_smi
+  changed_when: false
+  failed_when: false
+
+- name: 检查 nvcc 版本
+  command: /usr/local/cuda/bin/nvcc -V
+  register: check_nvcc
+  changed_when: false
+  failed_when: false
+
+- name: 检查 fabricmanager 安装版本
+  shell: dpkg-query -W -f='${Version}' nvidia-fabricmanager 2>/dev/null || echo "未安装"
+  register: check_fm_ver
+  changed_when: false
+
+- name: 检查 fabricmanager 服务状态
+  command: systemctl is-active nvidia-fabricmanager
+  register: check_fm_active
+  changed_when: false
+  failed_when: false
+
+- name: 检查 fabricmanager 开机自启状态
+  command: systemctl is-enabled nvidia-fabricmanager
+  register: check_fm_enabled
+  changed_when: false
+  failed_when: false
+
+- name: 检查 gpu_burn 可执行文件
+  stat:
+    path: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
+  register: check_gpu_burn
+
+- name: 检查 CUDA 环境变量配置
+  stat:
+    path: "{{ gpuenv_cuda_profile }}"
+  register: check_cuda_profile
+
+- name: 检查 dkms 内核模块构建状态
+  shell: dkms status 2>/dev/null | grep -i nvidia || echo "无 nvidia dkms 模块"
+  register: check_dkms
+  changed_when: false
+  failed_when: false
+
+# --- NCCL / OpenMPI / nccl-tests ---
+- name: 检查 NCCL 库版本
+  shell: dpkg-query -W -f='${Version}' libnccl2 2>/dev/null || echo "未安装"
+  register: check_nccl
+  changed_when: false
+
+- name: 检查 OpenMPI 安装（源码编译）
+  stat:
+    path: "{{ gpuenv_openmpi_dir }}/bin/mpirun"
+  register: check_openmpi
+
+- name: 检查 OpenMPI 版本
+  command: "{{ gpuenv_openmpi_dir }}/bin/mpirun --version"
+  register: check_openmpi_ver
+  changed_when: false
+  failed_when: false
+  when: check_openmpi.stat.exists
+
+- name: 检查 nccl-tests 编译产物
+  stat:
+    path: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
+  register: check_nccl_tests
+
+# --- DCGM / container-toolkit ---
+- name: 检查 DCGM 安装状态
+  shell: dpkg-query -W -f='${Version}' datacenter-gpu-manager 2>/dev/null || echo "未安装"
+  register: check_dcgm
+  changed_when: false
+
+- name: 检查 DCGM 服务状态
+  command: systemctl is-active nvidia-dcgm
+  register: check_dcgm_active
+  changed_when: false
+  failed_when: false
+
+- name: 检查 nvidia-container-toolkit 安装状态
+  shell: dpkg-query -W -f='${Version}' nvidia-container-toolkit 2>/dev/null || echo "未安装"
+  register: check_container_toolkit
+  changed_when: false
+
+# --- OFED / RDMA ---
+- name: 检查 OFED 安装状态（ofed_info）
+  shell: |
+    if command -v ofed_info >/dev/null 2>&1; then
+      ofed_info -s 2>/dev/null | head -n 1
+    else
+      echo "未安装（可能为 native RDMA 栈）"
+    fi
+  register: check_ofed
+  changed_when: false
+
+- name: 检查 rdma-core 原生栈
+  shell: dpkg-query -W -f='${Version}' rdma-core 2>/dev/null || echo "未安装"
+  register: check_rdma_core
+  changed_when: false
+
+- name: 检查 IB 设备
+  command: ibv_devices
+  register: check_ib_devices
+  changed_when: false
+  failed_when: false
+
+# --- nvidia_peermem / PCI ACS ---
+- name: 检查 nvidia_peermem 模块加载状态
+  shell: lsmod | grep -q nvidia_peermem && echo "已加载" || echo "未加载"
+  register: check_peermem
+  changed_when: false
+
+- name: 检查 nvidia_peermem 开机自动加载配置
+  stat:
+    path: /etc/modules-load.d/nvidia-peermem.conf
+  register: check_peermem_conf
+
+- name: 检查 PCI ACS 状态
+  shell: |
+    if lspci -vvv 2>/dev/null | grep ACSCtl | grep -q "SrcValid+"; then
+      echo "已启用（多机测试需关闭）"
+    else
+      echo "未启用"
+    fi
+  register: check_acs
+  changed_when: false
+
+- name: 检查 ACS 开机持久化服务
+  command: systemctl is-enabled disable-pci-acs
+  register: check_acs_service
+  changed_when: false
+  failed_when: false
+
+- name: 设置组件安装状态汇总事实
+  set_fact:
+    check_summary:
+      - { comp: "ofed",              name: "MLNX OFED（IB 网络驱动）",            installed: "{{ ('未安装' not in check_ofed.stdout) or ('未安装' not in check_rdma_core.stdout) }}" }
+      - { comp: "driver",           name: "NVIDIA GPU DRIVER（GPU 驱动）",      installed: "{{ check_pkgs.stdout is search('(^|\\s)nvidia-driver-') }}" }
+      - { comp: "peermem",           name: "NVIDIA_PEERMEM（GPUDirect RDMA）",   installed: "{{ (check_peermem.stdout | trim) == '已加载' }}" }
+      - { comp: "pci_acs",          name: "PCI ACS（关闭 ACS）",                 installed: "{{ '未启用' not in check_acs.stdout }}" }
+      - { comp: "cuda",              name: "CUDA TOOLKIT（计算工具链）",          installed: "{{ check_nvcc.rc == 0 }}" }
+      - { comp: "fabricmanager",     name: "NVIDIA FABRICMANAGER（NVLink 互联）", installed: "{{ '未安装' not in check_fm_ver.stdout }}" }
+      - { comp: "gpu_burn",          name: "GPU-BURN（压力测试）",                installed: "{{ check_gpu_burn.stat.exists }}" }
+      - { comp: "nccl",              name: "NCCL（集合通信库）",                  installed: "{{ '未安装' not in check_nccl.stdout }}" }
+      - { comp: "openmpi",           name: "OPENMPI（MPI 运行时）",              installed: "{{ check_openmpi.stat.exists }}" }
+      - { comp: "nccl_tests",        name: "NCCL-TESTS（带宽测试）",             installed: "{{ check_nccl_tests.stat.exists }}" }
+      - { comp: "dcgm",              name: "DCGM（GPU 监控）",                    installed: "{{ '未安装' not in check_dcgm.stdout }}" }
+      - { comp: "container_toolkit", name: "NVIDIA CONTAINER TOOLKIT（容器 GPU）", installed: "{{ '未安装' not in check_container_toolkit.stdout }}" }
+
+- name: 设置组件安装统计
+  set_fact:
+    check_installed_count: "{{ check_summary | selectattr('installed', 'equalto', true) | list | length }}"
+    check_total_count: "{{ check_summary | length }}"
+
+- name: 输出组件安装状态总表
+  debug:
+    msg:
+      - "================ 组件安装状态总表 ================"
+      - "主机: {{ inventory_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"
+      - "统计: 已安装 {{ check_installed_count }} / {{ check_total_count }}"
+      - "--------------------------------------------------"
+      - "{% for item in check_summary %}\
+           {{ item.comp }}: {{ '[已安装]' if item.installed else '[未安装]' }}\
+           {{ ',' if not loop.last else '' }}\
+         {% endfor %}"
+
+- name: 输出组件检测报告
+  debug:
+    msg:
+      - "================ GPU 环境组件检测报告 ================"
+      - "主机: {{ inventory_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"
+      - "------------------------------------------------------"
+      - "gcc: {{ check_gcc.stdout_lines[0] if check_gcc.rc == 0 else '未安装' }}"
+      - "cuda-keyring: {{ check_keyring.stdout }}"
+      - "------------------------------------------------------"
+      - "已安装软件包:"
+      - "{{ check_pkgs.stdout_lines | default(['（无）']) }}"
+      - "------------------------------------------------------"
+      - "dkms 模块: {{ check_dkms.stdout_lines | default(['无']) }}"
+      - "nvidia-smi: {{ '正常' if check_nvidia_smi.rc == 0 else '不可用（无 GPU 或驱动未加载）' }}"
+      - "nvcc: {{ check_nvcc.stdout_lines[-2] if check_nvcc.rc == 0 else '未安装' }}"
+      - "CUDA 环境变量: {{ '已配置' if check_cuda_profile.stat.exists else '未配置' }}"
+      - "------------------------------------------------------"
+      - "fabricmanager 服务: {{ check_fm_active.stdout | default('未知') }} (开机自启: {{ check_fm_enabled.stdout | default('未知') }})"
+      - "gpu_burn: {{ '已编译 ' + gpuenv_gpu_burn_dir + '/gpu_burn' if check_gpu_burn.stat.exists else '未编译' }}"
+      - "------------------------------------------------------"
+      - "NCCL: {{ check_nccl.stdout }}"
+      - "OpenMPI: {{ check_openmpi_ver.stdout_lines[0] if (check_openmpi.stat.exists and check_openmpi_ver.rc | default(1) == 0) else ('未安装' if not check_openmpi.stat.exists else '已安装（版本未知）') }}"
+      - "nccl-tests: {{ '已编译 ' + gpuenv_nccl_tests_dir + '/build' if check_nccl_tests.stat.exists else '未编译' }}"
+      - "------------------------------------------------------"
+      - "DCGM: {{ check_dcgm.stdout }} (服务: {{ check_dcgm_active.stdout | default('未知') }})"
+      - "nvidia-container-toolkit: {{ check_container_toolkit.stdout }}"
+      - "------------------------------------------------------"
+      - "OFED: {{ check_ofed.stdout }}"
+      - "rdma-core: {{ check_rdma_core.stdout }}"
+      - "IB 设备: {{ (check_ib_devices.stdout_lines[2:] | map('trim') | join(', ')) if (check_ib_devices.rc == 0 and check_ib_devices.stdout_lines | length > 2) else '无' }}"
+      - "------------------------------------------------------"
+      - "nvidia_peermem: {{ check_peermem.stdout }} (开机自动加载: {{ '已配置' if check_peermem_conf.stat.exists else '未配置' }})"
+      - "PCI ACS: {{ check_acs.stdout }} (开机持久化: {{ check_acs_service.stdout if (check_acs_service.rc | default(1) == 0 and check_acs_service.stdout | trim | length > 0) else '未配置' }})"
+
+- name: 输出已安装组件汇总
+  debug:
+    msg:
+      - "======================================================"
+      - "已安装组件（{{ check_installed_count }} / {{ check_total_count }}）:"
+      - "{{ check_summary | selectattr('installed', 'equalto', true) | map(attribute='name') | list }}"
+      - "未安装组件（{{ check_total_count | int - check_installed_count | int }}）:"
+      - "{{ check_summary | selectattr('installed', 'equalto', false) | map(attribute='name') | list }}"
+      - "======================================================"
