@@ -41,9 +41,9 @@ fi
 echo "🚀 开始执行 Ansible Playbook..."
 echo ""
 
-cd /root/ansible-kubernetes
+cd "$(dirname "$0")"
 
-ansible-playbook -i hosts.ini capture-calico-ipip.yml
+ansible-playbook capture-calico-ipip.yml
 
 echo ""
 echo "=============================================="
