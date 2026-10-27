@@ -37,6 +37,11 @@
   ansible.builtin.command: "kubeadm config images pull --config {{ kubeadm_init_config_dest }}"
   changed_when: false
 
+- name: Ensure IPv4 forwarding is enabled
+  when: not ansible_check_mode
+  ansible.builtin.command: sysctl -w net.ipv4.ip_forward=1
+  changed_when: false
+
 - name: kubeadm init (control-plane)
   when: not adminconf_stat.stat.exists and not ansible_check_mode
   ansible.builtin.command: "kubeadm init --config {{ kubeadm_init_config_dest }}"

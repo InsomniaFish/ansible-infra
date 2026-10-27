@@ -7,7 +7,7 @@ set -euo pipefail
 # - Skips hosts marked with ansible_connection=local
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INV_FILE="${INV_FILE:-$SCRIPT_DIR/../inventory/hosts.ini}"
+INV_FILE="${INV_FILE:-$SCRIPT_DIR/../inventory/inventory.ini}"
 
 usage() {
   cat <<'EOF'
@@ -23,7 +23,7 @@ Per-host (optional, overrides [linux:vars]):
   node01 ansible_host=10.0.0.11 ansible_user=root ansible_password=secret
 
 Env overrides (used when the host line omits them):
-  INV_FILE=../inventory/hosts.ini
+  INV_FILE=../inventory/inventory.ini
   ANSIBLE_USER=...
   ANSIBLE_PASSWORD=...
 EOF

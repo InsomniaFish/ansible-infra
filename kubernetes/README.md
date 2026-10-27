@@ -42,7 +42,7 @@
 .
 ├── ansible.cfg                 # Ansible 配置（inventory、SSH 等）
 ├── files/                      # 离线包与 manifest（calico、flannel、cri-dockerd.deb 等）
-├── hosts.ini                   # Inventory
+├── ../inventory/inventory.ini      # 主机清单
 ├── install_ansible.sh          # 安装 Ansible + sshpass
 ├── ssh-init.sh                 # 批量检查 SSH 连通性
 ├── gen_inventory.sh            # 生成 inventory

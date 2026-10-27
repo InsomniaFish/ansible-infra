@@ -116,6 +116,10 @@
     owner: root
     group: root
     mode: "0644"
-  notify: apply sysctl
+
+- name: Apply Kubernetes sysctl settings
+  when: not ansible_check_mode
+  ansible.builtin.command: sysctl --system
+  changed_when: false
 
 

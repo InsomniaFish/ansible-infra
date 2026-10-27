@@ -13,7 +13,7 @@ set -euo pipefail
 #   ./ssh-setup.sh --check    # 仅检查免密是否已生效（不分发密钥）
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-INV_FILE="${INV_FILE:-$SCRIPT_DIR/inventory.ini}"
+INV_FILE="${INV_FILE:-$SCRIPT_DIR/../inventory/inventory.ini}"
 SSH_KEY="${SSH_KEY:-$HOME/.ssh/id_rsa}"
 
 usage() {
@@ -28,7 +28,7 @@ usage() {
   未指定时回退到 [gpu_nodes:vars] 组级配置。
 
 环境变量覆盖：
-  INV_FILE=./inventory.ini   指定清单文件
+  INV_FILE=../inventory/inventory.ini   指定清单文件
   ANSIBLE_USER=...           覆盖组级用户名
   ANSIBLE_PASSWORD=...       覆盖组级密码
   SSH_KEY=~/.ssh/id_rsa      指定密钥路径

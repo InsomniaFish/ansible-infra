@@ -38,7 +38,7 @@ node01 (192.168.48.101)          node02 (192.168.48.102)
 apt-get update && apt-get install -y tshark
 
 # 或者使用 Ansible
-ansible k8s_cluster -i hosts.ini -m apt -a "name=tshark,state=present,update_cache=yes"
+ansible k8s_cluster -i ../inventory/inventory.ini -m apt -a "name=tshark,state=present,update_cache=yes"
 ```
 
 ### 2. 启动抓包
