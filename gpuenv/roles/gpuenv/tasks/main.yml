@@ -100,7 +100,7 @@
 - name: 安装 NCCL + OpenMPI + nccl-tests
   include_tasks: nccl.yml
   when: gpuenv_install_nccl
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 安装 DCGM 监控
   include_tasks: dcgm.yml

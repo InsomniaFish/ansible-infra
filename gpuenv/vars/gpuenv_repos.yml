@@ -56,9 +56,9 @@ gpuenv_nccl_tests_url: "https://ghproxy.net/https://github.com/NVIDIA/nccl-tests
 # OpenMPI 源码下载地址（需源码编译安装）
 # 官方下载页：https://www.open-mpi.org/software/ompi/v4.1/
 gpuenv_openmpi_version: "4.1.7"
-gpuenv_openmpi_url: "https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.7.tar.gz"
-# 备用直链（已验证可用，切换版本时替换版本号即可）：
-#   4.1.5：https://mirrors.huaweicloud.com/openmpi/openmpi-4.1.5.tar.gz
+gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz"
+# 备用直链（切换版本时替换版本号即可）：
+#   4.1.5：https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.5.tar.gz
 # 国内镜像备选（需自行验证可用性）：
 #   https://mirrors.aliyun.com/openmpi/ 或华为云/清华开源镜像站搜索 openmpi
 
