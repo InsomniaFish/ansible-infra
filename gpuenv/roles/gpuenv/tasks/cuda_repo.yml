@@ -45,8 +45,15 @@
 
     - name: 列出 apt 源文件
       find:
-        paths: /etc/apt/sources.list.d
-        patterns: '*'
+        paths:
+          - /etc/apt
+          - /etc/apt/sources.list.d
+        patterns:
+          - sources.list
+          - '*.list'
+          - '*.sources'
+        recurse: no
+        file_type: file
       register: apt_source_files
 
     - name: 阿里云 Docker 源改为清华源
@@ -54,7 +61,7 @@
         path: "{{ item }}"
         regexp: 'https?://mirrors\.aliyun\.com/docker-ce'
         replace: 'https://mirrors.tuna.tsinghua.edu.cn/docker-ce'
-      loop: "{{ apt_source_files.files | map(attribute='path') | list + ['/etc/apt/sources.list'] }}"
+      loop: "{{ apt_source_files.files | map(attribute='path') | list }}"
 
     - name: 删除阿里云 Docker 旧索引
       shell: rm -f /var/lib/apt/lists/*mirrors.aliyun.com_docker-ce*

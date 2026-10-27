@@ -3,7 +3,7 @@
 # GPUENV_CHECK role：检测 GPU 环境组件安装状况（只读，不做任何修改）
 # 检测项：编译依赖 / cuda-keyring / 驱动 / CUDA / fabricmanager / gpu-burn /
 #         NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED(RDMA) /
-#         nvidia_peermem / PCI ACS
+#         GPUDirect RDMA（DMA-BUF） / PCI ACS
 #===============================================================================
 
 - name: 收集已安装的 nvidia / cuda 相关软件包
@@ -129,13 +129,20 @@
   changed_when: false
   failed_when: false
 
-# --- nvidia_peermem / PCI ACS ---
-- name: 检查 nvidia_peermem 模块加载状态
-  shell: lsmod | grep -q nvidia_peermem && echo "已加载" || echo "未加载"
+# --- GPUDirect RDMA（Ubuntu 24.04：DMA-BUF）/ PCI ACS ---
+- name: 检查 GPUDirect RDMA 通道
+  shell: |
+    if [ -d /sys/module/nvidia ]; then
+      echo "DMA-BUF"
+    elif lsmod | grep -q nvidia_peermem; then
+      echo "nvidia_peermem"
+    else
+      echo "未就绪"
+    fi
   register: check_peermem
   changed_when: false
 
-- name: 检查 nvidia_peermem 开机自动加载配置
+- name: 检查是否残留 nvidia_peermem 开机加载配置
   stat:
     path: /etc/modules-load.d/nvidia-peermem.conf
   register: check_peermem_conf
@@ -161,7 +168,7 @@
     check_summary:
       - { comp: "ofed",              name: "MLNX OFED（IB 网络驱动）",            installed: "{{ ('未安装' not in check_ofed.stdout) or ('未安装' not in check_rdma_core.stdout) }}" }
       - { comp: "driver",           name: "NVIDIA GPU DRIVER（GPU 驱动）",      installed: "{{ check_pkgs.stdout is search('(^|\\s)nvidia-driver-') }}" }
-      - { comp: "peermem",           name: "NVIDIA_PEERMEM（GPUDirect RDMA）",   installed: "{{ (check_peermem.stdout | trim) == '已加载' }}" }
+      - { comp: "peermem",           name: "GPUDIRECT RDMA（DMA-BUF）",          installed: "{{ (check_peermem.stdout | trim) in ['DMA-BUF', 'nvidia_peermem'] }}" }
       - { comp: "pci_acs",          name: "PCI ACS（关闭 ACS）",                 installed: "{{ '未启用' not in check_acs.stdout }}" }
       - { comp: "cuda",              name: "CUDA TOOLKIT（计算工具链）",          installed: "{{ check_nvcc.rc == 0 }}" }
       - { comp: "fabricmanager",     name: "NVIDIA FABRICMANAGER（NVLink 互联）", installed: "{{ '未安装' not in check_fm_ver.stdout }}" }
@@ -220,7 +227,7 @@
       - "rdma-core: {{ check_rdma_core.stdout }}"
       - "IB 设备: {{ (check_ib_devices.stdout_lines[2:] | map('trim') | join(', ')) if (check_ib_devices.rc == 0 and check_ib_devices.stdout_lines | length > 2) else '无' }}"
       - "------------------------------------------------------"
-      - "nvidia_peermem: {{ check_peermem.stdout }} (开机自动加载: {{ '已配置' if check_peermem_conf.stat.exists else '未配置' }})"
+      - "GPUDirect RDMA: {{ check_peermem.stdout | trim }}{{ '（残留 nvidia_peermem 开机加载）' if check_peermem_conf.stat.exists else '' }}"
       - "PCI ACS: {{ check_acs.stdout }} (开机持久化: {{ check_acs_service.stdout if (check_acs_service.rc | default(1) == 0 and check_acs_service.stdout | trim | length > 0) else '未配置' }})"
 
 - name: 输出已安装组件汇总

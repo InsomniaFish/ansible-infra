@@ -74,9 +74,32 @@
   when: docker_check.rc == 0 and nvidia_ctk_configure is changed
   tags: [gpuenv, container_toolkit]
 
+- name: 检查 containerd 是否已安装
+  command: containerd --version
+  register: containerd_check
+  changed_when: false
+  failed_when: false
+  tags: [gpuenv, container_toolkit]
+
+- name: 配置 containerd 使用 nvidia 运行时
+  command: nvidia-ctk runtime configure --runtime=containerd
+  register: nvidia_ctk_containerd
+  changed_when: "'Successfully configured' in nvidia_ctk_containerd.stdout or 'configured' in nvidia_ctk_containerd.stdout"
+  when: containerd_check.rc == 0
+  tags: [gpuenv, container_toolkit]
+
+- name: 重启 containerd 使 nvidia 运行时生效
+  systemd:
+    name: containerd
+    state: restarted
+  when: containerd_check.rc == 0 and nvidia_ctk_containerd is changed
+  tags: [gpuenv, container_toolkit]
+
 - name: 容器支持配置结果提示
   debug:
     msg: >-
-      {{ 'nvidia-container-toolkit 已安装并配置 docker 运行时（docker run --gpus all 可用）' if docker_check.rc == 0 else
-         'nvidia-container-toolkit 已安装（未检测到 docker，跳过运行时配置）' }}
+      nvidia-container-toolkit 已安装
+      {{ '，docker 运行时已配置' if docker_check.rc == 0 else '' }}
+      {{ '，containerd 运行时已配置' if containerd_check.rc == 0 else '' }}
+      {{ '（未检测到 docker / containerd，跳过运行时配置）' if docker_check.rc != 0 and containerd_check.rc != 0 else '' }}
   tags: [gpuenv, container_toolkit]

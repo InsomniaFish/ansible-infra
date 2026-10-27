@@ -122,7 +122,7 @@
     msg: >-
       fabricmanager 安装版本 {{ fm_pkg_installed_ver.stdout | trim }} 与驱动版本
       {{ gpuenv_fm_target }} 不匹配（fabricmanager 版本必须与驱动完全一致）。
-      请下载对应版本 deb：https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_{{ gpuenv_fm_target }}-1ubuntu1_amd64.deb
+      请从 {{ gpuenv_repo_base_url }}/ 下载版本为 {{ gpuenv_fm_target }} 的 nvidia-fabricmanager deb
       并更新 gpuenv_fm_package 指向的安装包。
   when:
     - gpuenv_fm_install_mode == 'package'

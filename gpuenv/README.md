@@ -43,7 +43,7 @@ ansible-gpuenv/
 
 | 项目 | 要求 |
 |---|---|
-| 目标系统 | Ubuntu 22.04 |
+| 目标系统 | Ubuntu 24.04 |
 | 控制节点 | Ansible 2.10+、Python 3 |
 | 网络 | 可访问 developer.download.nvidia.com（.cn 国内镜像同域可用，nvshmem 默认走 .cn）、github.com（直链类组件）；OFED：content.mellanox.com（mlnx_ofed tgz）、linux.mellanox.com（doca_ofed online 配源） |
 | 权限 | root 用户（或配置 sudo 提权） |
@@ -123,7 +123,7 @@ ansible-playbook -i inventory.ini site.yml --limit node01
 |---|---|---|
 | `gpuenv_install_ofed=true` | OFED 驱动 / RDMA 栈 | IB 网络驱动，必须在 GPU 驱动之前安装；`mlnx_ofed` / `doca_ofed` 二选一 |
 | `gpuenv_install_driver=true` | NVIDIA GPU 驱动 | GPU 基础驱动 |
-| `gpuenv_install_peermem=true` | nvidia_peermem | GPUDirect RDMA 支持（依赖驱动） |
+| `gpuenv_install_peermem=true` | GPUDirect RDMA | Ubuntu 24.04 使用内核 DMA-BUF，不加载 nvidia_peermem |
 | `gpuenv_install_pci_acs=true` | 关闭 PCI ACS | 多机通信要求 |
 | `gpuenv_install_cuda=true` | CUDA Toolkit | GPU 计算工具链 |
 | `gpuenv_install_fabricmanager=true` | nvidia-fabricmanager | NVLink 多卡互联（版本须与驱动一致） |
@@ -178,7 +178,7 @@ ansible-playbook -i inventory.ini site.yml --limit node01
 
 | flavor | 说明 | 版本（①）语义 | online（②） | package（④） |
 |---|---|---|---|---|
-| `mlnx_ofed`（默认） | MLNX_OFED 传统发行版 | OFED 版本号，如 `23.10-2.1.3.1`（`ofed_info` 校验） | 【apt】原生 `rdma-core` 系列 | MLNX_OFED_LINUX-*.tgz，`mlnxofedinstall` 安装 |
+| `mlnx_ofed`（默认） | MLNX_OFED 传统发行版 | OFED 版本号，如 `24.10-3.2.5.0`（`ofed_info` 校验） | 【apt】原生 `rdma-core` 系列 | MLNX_OFED_LINUX-*-ubuntu24.04-x86_64.tgz，`mlnxofedinstall` 安装 |
 | `doca_ofed` | DOCA-Host（MLNX_OFED 的 1:1 继任者，同驱动/库/工具） | DOCA 发行版本，如 `3.2.2`（前缀匹配 `3.2.2-035000-25.10`） | 【URL+apt】无需 ③：按版本自动下载 GPG 密钥并写 DOCA 官方源（等价官方 doca-host 引导 deb 方式），apt 安装 `doca-ofed` 元包（版本由所选源决定） | 本地 deb 目录全量安装（须含 doca-ofed 元包与全部依赖 deb） |
 
 `vars/deploy.yml` 配置示例（mlnx_ofed 离线 / doca_ofed 在线）：
@@ -186,9 +186,9 @@ ansible-playbook -i inventory.ini site.yml --limit node01
 ```yaml
 gpuenv_install_ofed: true
 gpuenv_ofed_flavor: mlnx_ofed              # ⑤ 二选一（默认 mlnx_ofed）
-gpuenv_ofed_version: "23.10-2.1.3.1"       # ① 版本（语义随 flavor 变化）
+gpuenv_ofed_version: "24.10-3.2.5.0"       # ① 版本（语义随 flavor 变化）
 gpuenv_ofed_install_mode: package          # ② 安装方式
-gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-23.10-2.1.3.1-ubuntu22.04-x86_64.tgz   # ④
+gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64.tgz   # ④
 
 # doca_ofed 在线模式示例（源 URL 按版本自动拼接，无需填在线地址）：
 #gpuenv_ofed_flavor: doca_ofed
@@ -223,7 +223,7 @@ ansible-playbook -i inventory.ini site.yml
 软件源和版本统一维护在 `vars/gpuenv_repos.yml`：
 
 ```yaml
-gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
+gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64"
 gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
 gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
 gpuenv_driver_version: "580.105.08"
@@ -234,8 +234,8 @@ gpuenv_nccl_tests_url: "https://github.com/NVIDIA/nccl-tests/archive/refs/heads/
 gpuenv_openmpi_version: "4.1.7"
 gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz"
 gpuenv_ofed_flavor: "mlnx_ofed"        # mlnx_ofed / doca_ofed 二选一（语义见 OFED 双 flavor 章节）
-gpuenv_ofed_version: "23.10-2.1.3.1"  # mlnx_ofed: OFED 版本号 / doca_ofed: DOCA 发行版本（如 3.2.2）
-gpuenv_ofed_package: "https://content.mellanox.com/ofed/MLNX_OFED-23.10-2.1.3.1/MLNX_OFED_LINUX-23.10-2.1.3.1-ubuntu22.04-x86_64.tgz"
+gpuenv_ofed_version: "24.10-3.2.5.0"  # mlnx_ofed: OFED 版本号 / doca_ofed: DOCA 发行版本（如 3.2.2）
+gpuenv_ofed_package: "https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64.tgz"
 gpuenv_doca_repo_base: "https://linux.mellanox.com/public/repo/doca"  # doca_ofed 官方源基址（按版本拼 repo URL）
 ```
 
@@ -274,7 +274,7 @@ ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=n
 - 核心：`driver` `cuda` `fabricmanager` `gpu_burn`
 - 可选：`nccl` `openmpi` `nccl_tests` `dcgm` `container_toolkit` `ofed` `peermem` `pci_acs` `nvshmem`
 
-检测报告涵盖：gcc / cuda-keyring / 驱动 / CUDA / fabricmanager / dkms 模块 / nvidia-smi / nvcc / 环境变量 / gpu-burn / NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED / nvidia_peermem / PCI ACS。
+检测报告涵盖：gcc / cuda-keyring / 驱动 / CUDA / fabricmanager / dkms 模块 / nvidia-smi / nvcc / 环境变量 / gpu-burn / NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED / GPUDirect RDMA（DMA-BUF） / PCI ACS。
 
 ## 多机通信配置（IB / RoCE 场景）
 
@@ -283,7 +283,7 @@ ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=n
 | 配置项 | 开关变量 | 默认 | 说明 |
 |---|---|---|---|
 | OFED 驱动 | `gpuenv_install_ofed` | false | IB 网络驱动（`mlnx_ofed` / `doca_ofed` 二选一），先于 GPU 驱动安装 |
-| nvidia_peermem | `gpuenv_install_peermem` | false | GPUDirect RDMA 支持，加载模块并配置开机自动加载 |
+| GPUDirect RDMA | `gpuenv_install_peermem` | false | Ubuntu 24.04 使用内核 DMA-BUF，不加载 nvidia_peermem，并清理残留开机加载配置 |
 | PCI ACS 关闭 | `gpuenv_install_pci_acs` | false | 幂等关闭所有支持 ACS 的设备，并配置开机服务自动执行 |
 | NVSHMEM 通信库 | `gpuenv_install_nvshmem` | false | 多 GPU/多节点通信库（`nvshmem-cuda-<大版本>`，依赖驱动 + CUDA），随装写入 GPUDirect RDMA 驱动参数（需重启生效） |
 
@@ -293,7 +293,7 @@ NVSHMEM 安装与官方命令逐步等价（实现见 `roles/gpuenv/tasks/nvshme
 
 | NVSHMEM 官方命令 | role 自动化实现 |
 |---|---|
-| `wget .../3.7.2/local_installers/nvshmem-local-repo-ubuntu2204-3.7.2_3.7.2-1_amd64.deb` | 按 `gpuenv_nvshmem_version` 自动拼 URL 下载引导 deb（基址 `gpuenv_nvshmem_repo_base`，默认 .cn 镜像）；package 模式改从 `gpuenv_nvshmem_package`（本地路径/URL）获取 |
+| `wget .../3.7.2/local_installers/nvshmem-local-repo-ubuntu2404-3.7.2_3.7.2-1_amd64.deb` | 按 `gpuenv_nvshmem_version` 自动拼 URL 下载引导 deb（基址 `gpuenv_nvshmem_repo_base`，默认 .cn 镜像）；package 模式改从 `gpuenv_nvshmem_package`（本地路径/URL）获取 |
 | `dpkg -i` 引导 deb | 安装引导包，建立本地 apt 仓库与源配置 |
 | `cp /var/nvshmem-local-repo-*/nvshmem-*-keyring.gpg /usr/share/keyrings/` | 自动拷贝 keyring（内容一致时跳过） |
 | `apt-get update` | 刷新源缓存（网络抖动自动重试） |
@@ -358,7 +358,7 @@ ansible-playbook -i inventory.ini site.yml -e gpuenv_install_cuda=true --tags cu
 4. **无 GPU 环境**：`nvidia-smi`、fabricmanager 服务、gpu-burn 运行会失败，属正常现象，不影响安装
 5. **container_toolkit 会重启 docker**：K8s 控制节点慎用，建议在 worker 节点启用
 6. **NVSHMEM 驱动参数需重启生效**：nvshmem 组件写入 `/etc/modprobe.d/nvidia.conf`（`NVreg_EnableStreamMemOPs` 等 GPUDirect RDMA 参数）并自动 `update-initramfs`，运行中的内核模块不会热加载，需重启后生效；生效验证：`cat /proc/driver/nvidia/params | grep EnableStreamMemOPs` 应为 `1`（role 收尾自动检查并三态提示；官方命令全程对照见「多机通信配置」章节）
-7. **OFED package 模式下载**：若 worker 节点访问 `content.mellanox.com` 出现 DNS 解析失败（偶发），可在控制节点用 `curl` 预下载 tgz 后，通过 `-e gpuenv_ofed_package=/path/to/mlnx_ofed.tgz` 传入本地路径，由 Ansible 分发到各节点；doca_ofed 离线模式同理，从 DOCA 官方源 `https://linux.mellanox.com/public/repo/doca/<版本>/ubuntu22.04/x86_64/` 全量下载 deb 放入一个目录后填 `gpuenv_ofed_package=/path/to/doca-debs`
+7. **OFED package 模式下载**：若 worker 节点访问 `content.mellanox.com` 出现 DNS 解析失败（偶发），可在控制节点用 `curl` 预下载 tgz 后，通过 `-e gpuenv_ofed_package=/path/to/mlnx_ofed.tgz` 传入本地路径，由 Ansible 分发到各节点；doca_ofed 离线模式同理，从 DOCA 官方源 `https://linux.mellanox.com/public/repo/doca/<版本>/ubuntu24.04/x86_64/` 全量下载 deb 放入一个目录后填 `gpuenv_ofed_package=/path/to/doca-debs`
 8. **凭据安全**：`inventory.ini` 含密码，请勿提交到版本库或外传
 
 ## 驱动与 CUDA 版本兼容性说明

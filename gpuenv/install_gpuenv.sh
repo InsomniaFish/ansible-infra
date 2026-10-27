@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #===============================================================================
-# install_gpuenv.sh - GPU 环境在线安装脚本（Ubuntu 22.04）
+# install_gpuenv.sh - GPU 环境在线安装脚本（Ubuntu 24.04）
 #
 # 功能：在线安装 NVIDIA 驱动 / CUDA Toolkit / fabricmanager / gpu-burn
 #
@@ -35,8 +35,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # --- 源 URL 配置 ---
 # NVIDIA CUDA 官方软件源基础地址（驱动/CUDA/fabricmanager 均来自该源）
 #   - 国内加速：域名可改为 developer.download.nvidia.cn
-#   - 其他系统：ubuntu2204 可改为 ubuntu2004 / ubuntu2404 等
-CUDA_REPO_BASE_URL="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
+#   - 本脚本固定 Ubuntu 24.04（noble）软件源
+CUDA_REPO_BASE_URL="https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64"
 
 # cuda-keyring 软件源密钥包文件名（与 CUDA_REPO_BASE_URL 拼接为完整下载地址）
 CUDA_KEYRING_DEB="cuda-keyring_1.1-1_all.deb"
@@ -132,8 +132,8 @@ show_config() {
 #----------------------------- 前置检查 ---------------------------------------
 precheck() {
     [[ $EUID -ne 0 ]] && { err "请使用 root 用户执行"; exit 1; }
-    if ! grep -qi ubuntu /etc/os-release; then
-        err "本脚本仅支持 Ubuntu 系统"
+    if ! grep -q '^VERSION_ID="24.04"' /etc/os-release; then
+        err "本脚本仅支持 Ubuntu 24.04"
         exit 1
     fi
     log "系统: $(. /etc/os-release && echo "$PRETTY_NAME")  主机: $(hostname)"

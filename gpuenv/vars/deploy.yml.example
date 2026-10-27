@@ -89,9 +89,9 @@
 # gpuenv_ofed_flavor: mlnx_ofed
 # gpuenv_ofed_version: "24.10-1.1.4.0"
 # gpuenv_ofed_install_mode: package
-# gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu22.04-x86_64.tgz
+# gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu24.04-x86_64.tgz
 # # doca_ofed：本地 deb 目录（含 doca-ofed 元包及全部依赖 deb，
-# # 可从 DOCA 官方源 .../doca/3.2.2/ubuntu22.04/x86_64/ 全量下载）
+# # 可从 DOCA 官方源 .../doca/3.2.2/ubuntu24.04/x86_64/ 全量下载）
 # # gpuenv_install_ofed: true
 # # gpuenv_ofed_flavor: doca_ofed
 # # gpuenv_ofed_version: "3.2.2"
@@ -108,7 +108,7 @@
 #
 # gpuenv_install_nvshmem: true
 # gpuenv_nvshmem_install_mode: package        # 离线引导 deb（可从官方源 .../local_installers/ 下载）
-# gpuenv_nvshmem_package: /opt/packages/nvshmem-local-repo-ubuntu2204-3.7.2_3.7.2-1_amd64.deb
+# gpuenv_nvshmem_package: /opt/packages/nvshmem-local-repo-ubuntu2404-3.7.2_3.7.2-1_amd64.deb
 
 
 #===============================================================================
