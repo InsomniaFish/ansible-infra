@@ -222,7 +222,7 @@
     - gpuenv_ofed_flavor | default('mlnx_ofed') == 'doca_ofed'
 
 #=============================== peermem ========================================
-- name: 卸载 nvidia_peermem 模块并删除开机自动加载配置
+- name: 清理残留的 nvidia_peermem 模块与开机加载配置
   shell: |
     rmmod nvidia_peermem 2>/dev/null || true
     rm -f /etc/modules-load.d/nvidia-peermem.conf

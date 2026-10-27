@@ -11,7 +11,7 @@
 # 可选组件（开关变量，写于 vars/deploy.yml）：
 #   gpuenv_install_ofed              MLNX OFED / RDMA 栈（须先于驱动安装）
 #   gpuenv_install_driver            NVIDIA GPU 驱动
-#   gpuenv_install_peermem           nvidia_peermem（GPUDirect RDMA，依赖驱动）
+#   gpuenv_install_peermem           GPUDirect RDMA（Ubuntu 24.04 使用 DMA-BUF，依赖驱动）
 #   gpuenv_install_pci_acs           关闭 PCI ACS（多机通信要求）
 #   gpuenv_install_cuda              CUDA Toolkit
 #   gpuenv_install_fabricmanager     nvidia-fabricmanager（版本须与驱动一致）
@@ -42,7 +42,18 @@
 - name: 部署 GPU 环境（组件按需指定，支持在线/离线安装）
   hosts: gpu_nodes
   become: yes
-  gather_facts: yes
+  gather_facts: false
+  environment:
+    DEBIAN_FRONTEND: noninteractive
+    NEEDRESTART_MODE: a
+  pre_tasks:
+    - name: 确保目标机已安装 Python 3
+      raw: >
+        command -v python3 >/dev/null 2>&1 ||
+        (apt-get update && DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y python3)
+      changed_when: false
+    - name: 收集主机信息
+      setup:
   vars_files:
     - vars/gpuenv_repos.yml
     - vars/deploy.yml          # 部署配置清单（组件/模式/包路径，默认全注释=不装任何组件）

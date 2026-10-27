@@ -1,6 +1,6 @@
 # GPU 环境手动安装参考文档（INSTALL_GPUENV.md）
 
-本文档为**命令行手动安装参考**（不依赖 Ansible / deploy.yml），版本基线与 `vars/deploy.yml` 当前方案一致：驱动 580.105.08 / CUDA 13.0.2 / fabricmanager 580.105.08-1 / NCCL 2.28.9-1+cuda13.0 / OpenMPI 4.1.7 / nccl-tests 2.17.6 / MLNX OFED 24.10-3.2.5.0。
+本文档为 **Ubuntu 24.04** 命令行手动安装参考（不依赖 Ansible / deploy.yml），版本基线与 `vars/deploy.yml` 当前方案一致：驱动 580.105.08 / CUDA 13.0.2 / fabricmanager 580.105.08-1 / NCCL 2.28.9-1+cuda13.0 / OpenMPI 4.1.7 / nccl-tests 2.17.6 / MLNX OFED 24.10-3.2.5.0。
 
 **安装顺序（必须遵守）**：OFED（RDMA 栈）→ 驱动 → [重启] → CUDA → fabricmanager → NCCL → OpenMPI → nccl-tests / gpu-burn。
 
@@ -16,24 +16,24 @@
 |---|---|---|---|
 | CUDA Toolkit | 13.0.2 | https://developer.download.nvidia.com/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run | 历史版本归档：https://developer.nvidia.com/cuda-toolkit-archive |
 | NVIDIA 驱动 | 580.105.08 | https://download.nvidia.com/XFree86/Linux-x86_64/580.105.08/NVIDIA-Linux-x86_64-580.105.08.run | 按版本号拼接；驱动选择页：https://www.nvidia.com/drivers/ |
-| fabricmanager | 580.105.08-1 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb | **必须与驱动版本严格一致** |
-| MLNX OFED | 24.10-3.2.5.0 | https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz | 下载页：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/ |
-| NCCL deb | 2.28.9-1+cuda13.0 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb | libnccl2 与 libnccl-dev 两个都下载 |
-| NCCL dev deb | 2.28.9-1+cuda13.0 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb | 同上 |
+| fabricmanager | 580.105.08-1 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb | **必须与驱动版本严格一致** |
+| MLNX OFED | 24.10-3.2.5.0 | https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64.tgz | 下载页：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/ |
+| NCCL deb | 2.28.9-1+cuda13.0 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb | libnccl2 与 libnccl-dev 两个都下载 |
+| NCCL dev deb | 2.28.9-1+cuda13.0 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb | 同上 |
 | OpenMPI 源码 | 4.1.7 | https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz | 下载页：https://www.open-mpi.org/software/ompi/v4.1/ |
 | nccl-tests 源码 | 2.17.6 | https://github.com/NVIDIA/nccl-tests/archive/refs/tags/v2.17.6.zip | Releases 页选版本 |
 | gpu-burn 源码 | master | https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip | 指定版本：refs/tags/v1.1.zip |
-| cuda-keyring | 1.1-1 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb | 配置 NVIDIA apt 源用 |
+| cuda-keyring | 1.1-1 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb | 配置 NVIDIA apt 源用 |
 
 批量下载（可联网机器执行，国内建议用 `developer.download.nvidia.cn` 域名）：
 
 ```bash
 mkdir -p /opt/packages && cd /opt/packages
 curl -fLO https://developer.download.nvidia.cn/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run
-curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
-curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb
-curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb
-curl -fLO https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz
+curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2404/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
+curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2404/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb
+curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2404/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb
+curl -fLO https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64.tgz
 curl -fLO https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz
 curl -fL  https://github.com/NVIDIA/nccl-tests/archive/refs/tags/v2.17.6.zip -o nccl-tests-2.17.6.zip
 curl -fL  https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip -o gpu-burn-master.zip
@@ -55,7 +55,7 @@ gcc --version
 配置 NVIDIA 官方 apt 源（在线安装驱动 / CUDA / fabricmanager / NCCL 需要）：
 
 ```bash
-curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb
+curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb
 apt-get install -y /tmp/cuda-keyring.deb
 apt-get update
 # 国内加速可把域名换为 developer.download.nvidia.cn
@@ -76,13 +76,13 @@ apt-get install -y rdma-core ibverbs-providers ibverbs-utils \
 
 ### 离线安装（官方 MLNX_OFED tgz，需要完整 OFED 功能时）
 
-> 下载：https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz
+> 下载：https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64.tgz
 > 下载页（选其他版本）：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
 
 ```bash
 cd /opt/packages
-tar -xzf MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz
-cd MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64
+tar -xzf MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64.tgz
+cd MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64
 ./mlnxofedinstall --all
 ```
 
@@ -209,8 +209,8 @@ apt-get install -y nvidia-fabricmanager-580=580.105.08-1
 
 ### 离线安装（deb 包）
 
-> 下载：https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
-> 仓库目录（其他版本）：https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/
+> 下载：https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
+> 仓库目录（其他版本）：https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/
 
 ```bash
 dpkg -i /opt/packages/nvidia-fabricmanager_580.105.08-1_amd64.deb
@@ -246,8 +246,8 @@ apt-get install -y libnccl2=2.28.9-1+cuda13.0 libnccl-dev=2.28.9-1+cuda13.0
 ### 离线安装（deb 包）
 
 > 下载（两个都要）：
-> - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb
-> - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb
+> - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb
+> - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb
 > 下载页（按 CUDA 版本选）：https://developer.nvidia.com/nccl/nccl-download
 
 ```bash
@@ -323,7 +323,7 @@ mpirun --prefix /usr/local/openmpi --allow-run-as-root -np 16 \
 多机前置（按需）：
 
 ```bash
-modprobe nvidia_peermem                                    # GPUDirect RDMA
+# Ubuntu 24.04 的 GPUDirect RDMA 由内核 DMA-BUF 提供，不要 modprobe nvidia_peermem
 lspci -vvv | grep ACSCtl                                   # 输出含 SrcValid+ 则需关闭 ACS
 ```
 

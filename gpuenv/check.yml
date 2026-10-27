@@ -8,6 +8,14 @@
 - name: 检测 GPU 环境组件安装状况
   hosts: gpu_nodes
   become: yes
-  gather_facts: yes
+  gather_facts: false
+  pre_tasks:
+    - name: 确保目标机已安装 Python 3
+      raw: >
+        command -v python3 >/dev/null 2>&1 ||
+        (apt-get update && DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a apt-get install -y python3)
+      changed_when: false
+    - name: 收集主机信息
+      setup:
   roles:
     - gpuenv_check

@@ -1,10 +1,10 @@
 ---
 # 可选组件：NVSHMEM（NVIDIA SHMEM 多 GPU / 多节点通信库，OpenSHMEM 兼容 API）
-# 依赖：GPU 驱动（libcuda）+ CUDA；GPUDirect RDMA 场景建议先装 OFED 并加载 nvidia-peermem
+# 依赖：GPU 驱动（libcuda）+ CUDA；GPUDirect RDMA 在 Ubuntu 24.04 走内核 DMA-BUF，无需 nvidia_peermem
 # 安装模式（gpuenv_nvshmem_install_mode）：
 #   - online（默认）【URL+apt】：按 gpuenv_nvshmem_version 自动拼接下载 nvshmem-local-repo
 #     引导 deb（等价官方 wget + dpkg -i 方式）：
-#     <gpuenv_nvshmem_repo_base>/<版本>/local_installers/nvshmem-local-repo-ubuntu2204-<版本>_<版本>-1_amd64.deb
+#     <gpuenv_nvshmem_repo_base>/<版本>/local_installers/nvshmem-local-repo-ubuntu2404-<版本>_<版本>-1_amd64.deb
 #   - package：使用已下载的引导 deb（gpuenv_nvshmem_package，本地路径或 URL）
 # 安装步骤与官方一致：dpkg -i 引导包（建立本地 apt 仓库与源配置）→ 拷贝 keyring
 #   → apt update → apt install nvshmem-cuda-<CUDA 大版本>

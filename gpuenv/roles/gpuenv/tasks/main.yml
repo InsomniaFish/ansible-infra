@@ -63,7 +63,7 @@
   when: gpuenv_install_driver
   tags: [gpuenv, driver]
 
-- name: 加载 nvidia_peermem（多机通信，依赖驱动）
+- name: 配置 GPUDirect RDMA（Ubuntu 24.04 使用 DMA-BUF，依赖驱动）
   include_tasks: peermem.yml
   when: gpuenv_install_peermem
   tags: [gpuenv, peermem]
