@@ -74,21 +74,21 @@
       - libibverbs-dev
     state: present
   failed_when: false
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 检查 OpenMPI 是否已编译安装
 
   stat:
     path: /usr/local/openmpi/bin/mpirun
   register: openmpi_bin
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: OpenMPI 已安装，跳过
 
   debug:
     msg: "OpenMPI 已安装 (/usr/local/openmpi)，跳过"
   when: not gpuenv_force and openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: package 模式校验 OpenMPI 安装包参数
   fail:
@@ -98,7 +98,21 @@
   when:
     - gpuenv_openmpi_install_mode == 'package'
     - gpuenv_openmpi_package | length == 0
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
+
+- name: 删除无效的 OpenMPI 源码包（镜像页被存成 tar.gz 时重新下载）
+  shell: |
+    f="{{ gpuenv_pkg_dir }}/openmpi-{{ gpuenv_openmpi_version }}.tar.gz"
+    if [ -f "$f" ] && ! gzip -t "$f" >/dev/null 2>&1; then
+      rm -f "$f"
+      echo removed
+    fi
+  register: openmpi_bad_pkg
+  changed_when: "'removed' in openmpi_bad_pkg.stdout"
+  when:
+    - gpuenv_openmpi_install_mode == 'online'
+    - gpuenv_force or not openmpi_bin.stat.exists
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 下载 OpenMPI 源码（online 模式，URL 直链）
   get_url:
@@ -108,7 +122,7 @@
   when:
     - gpuenv_openmpi_install_mode == 'online'
     - gpuenv_force or not openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 下载离线 OpenMPI 源码包（package 模式且离线地址为 URL）
   get_url:
@@ -119,7 +133,7 @@
     - gpuenv_openmpi_install_mode == 'package'
     - gpuenv_openmpi_package is match('^https?://')
     - gpuenv_force or not openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 拷贝本地 OpenMPI 源码包到安装包目录（package 模式且离线地址为本地路径）
   copy:
@@ -130,7 +144,7 @@
     - gpuenv_openmpi_install_mode == 'package'
     - gpuenv_openmpi_package is not match('^https?://')
     - gpuenv_force or not openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 解压 OpenMPI 源码（到构建目录）
 
@@ -139,7 +153,7 @@
     dest: "{{ gpuenv_build_dir }}"
     remote_src: yes
   when: gpuenv_force or not openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 配置 OpenMPI 编译（安装到 /usr/local/openmpi）
 
@@ -148,7 +162,7 @@
     chdir: "{{ gpuenv_openmpi_src_dir }}"
     creates: "{{ gpuenv_openmpi_src_dir }}/Makefile"
   when: gpuenv_force or not openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 编译 OpenMPI
 
@@ -156,7 +170,7 @@
   args:
     chdir: "{{ gpuenv_openmpi_src_dir }}"
   when: gpuenv_force or not openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 安装 OpenMPI
 
@@ -164,7 +178,7 @@
   args:
     chdir: "{{ gpuenv_openmpi_src_dir }}"
   when: gpuenv_force or not openmpi_bin.stat.exists
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 
 - name: 配置 OpenMPI 环境变量
 
@@ -178,7 +192,7 @@
 # 注意：编译完成后保留 OpenMPI 源码包与源码目录，不做删除
 
 #=============================== nccl-tests 编译 ===================================
-  tags: [gpuenv, nccl]
+  tags: [gpuenv, nccl, openmpi]
 - name: 检查 nccl-tests 是否已编译
 
   stat:
