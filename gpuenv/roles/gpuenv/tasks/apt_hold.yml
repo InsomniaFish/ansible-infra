@@ -18,7 +18,10 @@
 - name: 计算需要锁定的候选包列表（驱动子包 + cuda 元包 + fabricmanager + nccl + doca-ofed + nvshmem）
   set_fact:
     gpuenv_hold_candidates: >-
-      {{ (gpuenv_driver_subpackages | map('regex_replace', '^(.*)$', '\1-' ~ gpuenv_driver_major) | list
+      {{ (gpuenv_driver_subpackages
+          | map('regex_replace', '^(.*)$', '\\1-' ~ gpuenv_driver_major)
+          | map('regex_replace', '^(nvidia-driver-' ~ gpuenv_driver_major ~ '|nvidia-dkms-' ~ gpuenv_driver_major ~ ')$', '\\1-open')
+          | list
           if (gpuenv_install_driver | bool and gpuenv_driver_install_mode == 'online') else [])
          + (['cuda-toolkit-' ~ (gpuenv_cuda_version.split('.')[:2] | join('-'))]
             if (gpuenv_install_cuda | bool and gpuenv_cuda_install_mode == 'online') else [])
