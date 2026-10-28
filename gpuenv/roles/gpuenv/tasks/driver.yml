@@ -9,7 +9,7 @@
     pkg=nvidia-driver-{{ gpuenv_driver_major }}
     [ "{{ gpuenv_driver_install_mode }}" = "online" ] && pkg=${pkg}-open
     status=$(dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null | cut -c1-2)
-    [ "$status" = "ii" ] && dpkg-query -W -f='${Version}' "$pkg"
+    [ "$(printf '%s' "$status" | cut -c2)" = "i" ] && dpkg-query -W -f='${Version}' "$pkg"
   register: driver_installed
   changed_when: false
   failed_when: false
@@ -61,7 +61,7 @@
   shell: |
     for p in {{ gpuenv_driver_subpackages | join(' ') }}; do
       name="${p}-{{ gpuenv_driver_major }}"
-      if [ "$p" = "nvidia-driver" ] || [ "$p" = "nvidia-dkms" ]; then
+      if [ "$p" = "nvidia-driver" ] || [ "$p" = "nvidia-dkms" ] || [ "$p" = "nvidia-kernel-source" ]; then
         name="${name}-open"
       fi
       apt-cache show "$name" >/dev/null 2>&1 && echo "${name}={{ driver_repo_ver.stdout | trim }}"
