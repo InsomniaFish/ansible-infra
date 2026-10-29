@@ -1,4 +1,4 @@
-# GPUDirect RDMA（Ubuntu 24.04）
+# GPUDirect RDMA（Ubuntu 22.04）
 # 内核 6.8 起由 DMA-BUF 提供，不再加载 nvidia_peermem。
 # 残留 /etc/modules-load.d/nvidia-peermem.conf 会在开机时因模块不存在而失败。
 # 启用方式：-e gpuenv_install_peermem=true
@@ -32,6 +32,6 @@
 
 - name: GPUDirect RDMA 结果提示
   debug:
-    msg: "Ubuntu 24.04 使用内核 DMA-BUF 提供 GPUDirect RDMA，已跳过 nvidia_peermem"
+    msg: "Ubuntu 22.04 使用内核 DMA-BUF 提供 GPUDirect RDMA，已跳过 nvidia_peermem"
   when: nvidia_mod_check.stdout | trim == 'yes'
   tags: [gpuenv, peermem]

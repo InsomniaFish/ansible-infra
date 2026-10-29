@@ -13,7 +13,7 @@
 #
 # 版本（gpuenv_ofed_version）语义随 flavor 变化：
 #   - mlnx_ofed：OFED 版本号（如 23.10-2.1.3.1），ofed_info 校验；online 模式不参与
-#   - doca_ofed：DOCA 发行版本（如 3.2.2），官方源按其拼接（.../doca/3.2.2/ubuntu24.04/x86_64/），
+#   - doca_ofed：DOCA 发行版本（如 3.2.2），官方源按其拼接（.../doca/3.2.2/ubuntu22.04/x86_64/），
 #                dpkg 安装版本前缀校验（如 3.2.2-035000-25.10）
 #
 # 说明：MLNX_OFED 的官方 apt 仓库（linux.mellanox.com）实测无法直接通过 apt 拉取，
@@ -276,7 +276,7 @@
 
 # ---------- doca_ofed · online【URL+apt：按版本自动配置 DOCA 官方源】----------
 # 等价官方手动方式：GPG 密钥导入 trusted.gpg.d + 写 sources.list.d/doca.list + apt install doca-ofed
-# （官方另一种方式是先安装 doca-host_<版本>-ubuntu2404_amd64.deb 引导包，其作用同样是写入此源配置）
+# （官方另一种方式是先安装 doca-host_<版本>-ubuntu2204_amd64.deb 引导包，其作用同样是写入此源配置）
 
 - name: 下载 DOCA 官方 GPG 密钥（转 binary keyring）
   shell: >

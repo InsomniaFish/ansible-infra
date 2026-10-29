@@ -129,7 +129,7 @@
   changed_when: false
   failed_when: false
 
-# --- GPUDirect RDMA（Ubuntu 24.04：DMA-BUF）/ PCI ACS ---
+# --- GPUDirect RDMA（Ubuntu 22.04：DMA-BUF）/ PCI ACS ---
 - name: 检查 GPUDirect RDMA 通道
   shell: |
     if [ -d /sys/module/nvidia ]; then
