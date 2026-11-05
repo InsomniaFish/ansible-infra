@@ -28,6 +28,12 @@ git checkout ubuntu24.04
 git pull
 ```
 
+查看当前分支：
+
+```bash
+git branch --show-current
+```
+
 ## gpuenv
 
 安装、检测和卸载 NVIDIA GPU 运行环境，包括驱动、CUDA、OFED、NCCL 等。按组件开关选择装什么。
