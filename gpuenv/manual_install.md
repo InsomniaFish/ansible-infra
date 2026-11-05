@@ -23,6 +23,14 @@ apt-get update
 apt-get install -y build-essential linux-headers-$(uname -r) unzip curl
 ```
 
+检查：
+
+```bash
+. /etc/os-release && echo "$VERSION_ID"    # 24.04
+gcc --version | head -n 1
+test -d /opt/packages && test -d /opt/build && echo ok
+```
+
 ## 1. CUDA 软件源
 
 在线安装驱动、CUDA、fabricmanager、NCCL、DCGM、container-toolkit 时需要。
@@ -33,6 +41,8 @@ curl -fsSL -o /opt/packages/cuda-keyring.deb \
 apt-get install -y /opt/packages/cuda-keyring.deb
 apt-get update
 ```
+
+检查：`dpkg-query -W cuda-keyring` 状态为 `ii`。
 
 ## 2. OFED
 
@@ -45,7 +55,15 @@ apt-get install -y rdma-core ibverbs-providers ibverbs-utils \
   infiniband-diags perftest libibverbs-dev librdmacm-dev
 ```
 
-`mlnx_ofed` 离线用 Ubuntu 24.04 的 tgz，跑 `mlnxofedinstall`。`doca_ofed` 在线按 DOCA 版本拼源（如 3.2.2）：
+`mlnx_ofed` 离线用 Ubuntu 24.04 的 tgz：
+
+```bash
+tar -C /opt/packages -xzf /opt/packages/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64.tgz
+/opt/packages/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu24.04-x86_64/mlnxofedinstall \
+  --add-kernel-support --without-fw-update --force
+```
+
+`doca_ofed` 在线按 DOCA 版本拼源（如 3.2.2）：
 
 ```bash
 curl -fsSL https://linux.mellanox.com/public/repo/doca/GPG-KEY-Mellanox.pub \
@@ -57,6 +75,15 @@ apt-get install -y doca-ofed
 ```
 
 `doca_ofed` 离线把该版本目录下的 deb 全部放进一个目录后 `apt-get install -y ./*.deb`。
+
+检查：
+
+```bash
+ofed_info -s || true
+dpkg-query -W rdma-core
+dpkg-query -W -f='${Status} ${Version}\n' doca-ofed 2>/dev/null || true
+ibv_devinfo -l || true
+```
 
 ## 3. 驱动
 
@@ -81,6 +108,14 @@ reboot
 
 装完需要加载内核模块时再重启。`nvidia-smi` 在重启前失败是正常的。
 
+检查（重启后）：
+
+```bash
+nvidia-smi --query-gpu=driver_version --format=csv,noheader
+modinfo nvidia | awk '/^version:|^license:/{print}'
+# 开源模块 license 为 Dual MIT/GPL
+```
+
 ## 4. CUDA
 
 只装 Toolkit，不装 run 包里捆绑的驱动。
@@ -102,6 +137,14 @@ cat > /etc/profile.d/cuda.sh << 'EOF'
 export PATH=/usr/local/cuda/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
 EOF
+source /etc/profile.d/cuda.sh
+```
+
+检查：
+
+```bash
+dpkg-query -W cuda-toolkit-13-0 2>/dev/null || true
+/usr/local/cuda/bin/nvcc -V
 ```
 
 ## 5. fabricmanager
@@ -115,6 +158,13 @@ systemctl enable --now nvidia-fabricmanager
 
 离线：`apt-get install -y /opt/packages/nvidia-fabricmanager_<版本>_amd64.deb`。
 
+检查：
+
+```bash
+dpkg-query -W nvidia-fabricmanager
+systemctl is-active nvidia-fabricmanager
+```
+
 ## 6. NCCL
 
 与 OpenMPI、nccl-tests 分开装。
@@ -124,6 +174,8 @@ apt-get install -y libnccl2=2.28.9-1+cuda13.0 libnccl-dev=2.28.9-1+cuda13.0
 ```
 
 离线：把 `libnccl2` 和 `libnccl-dev` 的 deb 放进一个目录，`apt-get install -y ./*.deb`。
+
+检查：`dpkg-query -W libnccl2 libnccl-dev`。
 
 ## 7. OpenMPI
 
@@ -143,6 +195,8 @@ export LD_LIBRARY_PATH=/usr/local/openmpi/lib:$LD_LIBRARY_PATH
 EOF
 ```
 
+检查：`/usr/local/openmpi/bin/mpirun --version`。
+
 ## 8. nccl-tests
 
 依赖已安装的 OpenMPI 和 CUDA。装到 `/opt/build/nccl-tests`。
@@ -157,6 +211,8 @@ mv /tmp/nccl-tests-extract/* /opt/build/nccl-tests
 cd /opt/build/nccl-tests
 make -j MPI=1 MPI_HOME=/usr/local/openmpi CUDA_HOME=/usr/local/cuda
 ```
+
+检查：`test -x /opt/build/nccl-tests/build/all_reduce_perf && echo ok`。
 
 ## 9. NVSHMEM
 
@@ -175,20 +231,70 @@ EOF
 update-initramfs -u
 ```
 
-然后重启。`cat /proc/driver/nvidia/params | grep EnableStreamMemOPs` 应为 `1`。
+然后重启。
+
+检查：
+
+```bash
+dpkg-query -W nvshmem-cuda-13
+grep EnableStreamMemOPs /etc/modprobe.d/nvidia.conf
+# 重启后：
+grep EnableStreamMemOPs /proc/driver/nvidia/params    # 应为 1
+```
 
 ## 10. GPUDirect RDMA
 
-Ubuntu 24.04 使用内核 DMA-BUF，不要 `modprobe nvidia_peermem`。若残留开机加载文件，删掉，避免开机因模块不存在而失败。
+Ubuntu 24.04 使用内核 DMA-BUF，不要 `modprobe nvidia_peermem`。删掉残留开机加载文件。
 
 ```bash
 rm -f /etc/modules-load.d/nvidia-peermem.conf
 rmmod nvidia_peermem 2>/dev/null || true
 ```
 
+检查：
+
+```bash
+test ! -f /etc/modules-load.d/nvidia-peermem.conf && echo ok
+lsmod | grep nvidia_peermem || echo '未加载 nvidia_peermem'
+```
+
 ## 11. PCI ACS
 
-装 `pciutils`。对所有支持 ACS 的设备写 `ACSCtl=0000`，并用 systemd 在开机、网络栈之前重做。检查 `lspci -vvv | grep ACSCtl` 不应出现 `SrcValid+`。
+```bash
+apt-get install -y pciutils
+install -d /usr/local/sbin
+cat > /usr/local/sbin/disable-pcie-acs.sh << 'EOF'
+#!/usr/bin/env bash
+set -u
+for BDF in $(lspci -D | awk '{print $1}'); do
+  if setpci -s "$BDF" ECAP_ACS+0x6.w >/dev/null 2>&1; then
+    before=$(setpci -s "$BDF" ECAP_ACS+0x6.w 2>/dev/null || echo unknown)
+    setpci -s "$BDF" ECAP_ACS+0x6.w=0000 >/dev/null 2>&1 || true
+    after=$(setpci -s "$BDF" ECAP_ACS+0x6.w 2>/dev/null || echo unknown)
+    echo "$BDF ACSCtl $before -> $after"
+  fi
+done
+EOF
+chmod 755 /usr/local/sbin/disable-pcie-acs.sh
+/usr/local/sbin/disable-pcie-acs.sh
+cat > /etc/systemd/system/disable-pcie-acs.service << 'EOF'
+[Unit]
+Description=Disable PCIe ACS for GPUDirect RDMA
+DefaultDependencies=no
+After=local-fs.target
+Before=network-pre.target
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/disable-pcie-acs.sh
+RemainAfterExit=yes
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl daemon-reload
+systemctl enable disable-pcie-acs.service
+```
+
+检查：`lspci -vvv | grep ACSCtl | grep SrcValid+` 应无输出。`systemctl is-enabled disable-pcie-acs` 为 `enabled`。
 
 ## 12. IOMMU
 
@@ -199,7 +305,15 @@ rmmod nvidia_peermem 2>/dev/null || true
 - Intel `pt`：`intel_iommu=on iommu=pt`
 - AMD `pt`：`amd_iommu=on iommu=pt`
 
-VMware 客户机不要写 `iommu=off`。
+VMware 客户机不要写 `iommu=off`。示例（Intel，`off`）：
+
+```bash
+cp /etc/default/grub /etc/default/grub.bak.$(date +%F_%H%M%S)
+sed -i 's/^GRUB_CMDLINE_LINUX="\(.*\)"/GRUB_CMDLINE_LINUX="intel_iommu=off iommu=off \1"/' /etc/default/grub
+update-grub
+```
+
+先确认原行里没有旧的 `iommu=`。检查：`grep '^GRUB_CMDLINE_LINUX=' /etc/default/grub`。重启后再看 `cat /proc/cmdline`。
 
 ## 13. inotify
 
@@ -212,9 +326,30 @@ EOF
 sysctl --system
 ```
 
+检查：
+
+```bash
+sysctl fs.inotify.max_user_watches fs.inotify.max_user_instances fs.inotify.max_queued_events
+```
+
 ## 14. PFC / ECN
 
-只用于 RoCE，InfiniBand 不要做。网口留空时用 mlx5 对应的以太网口。PFC 用 `mlnx_qos --trust dscp --pfc 0,0,0,1,0,0,0,0`。ECN 把对应优先级的 `roce_np/enable/<prio>` 和 `roce_rp/enable/<prio>` 写成 `1`。需要开机重做时写成 systemd 服务。
+只用于 RoCE，InfiniBand 不要做。下面把优先级 3 打开，网口改成实际的 mlx5 以太网口。
+
+```bash
+iface=eth0
+mlnx_qos -i "$iface" --trust dscp --pfc 0,0,0,1,0,0,0,0
+echo 1 > /sys/class/net/$iface/ecn/roce_np/enable/3
+echo 1 > /sys/class/net/$iface/ecn/roce_rp/enable/3
+```
+
+检查：
+
+```bash
+mlnx_qos -i "$iface"
+cat /sys/class/net/$iface/ecn/roce_np/enable/3
+cat /sys/class/net/$iface/ecn/roce_rp/enable/3
+```
 
 ## 15. GDRCopy
 
@@ -231,6 +366,14 @@ modprobe gdrdrv
 printf 'gdrdrv\n' > /etc/modules-load.d/gdrdrv.conf
 ```
 
+检查：
+
+```bash
+lsmod | grep '^gdrdrv'
+grep -qx gdrdrv /etc/modules-load.d/gdrdrv.conf && echo ok
+gdrcopy_sanity
+```
+
 ## 16. gpu-burn
 
 装到 `/opt/build/gpu-burn`。
@@ -245,6 +388,8 @@ mv /tmp/gpu-burn-extract/* /opt/build/gpu-burn
 make -C /opt/build/gpu-burn
 ```
 
+检查：`test -x /opt/build/gpu-burn/gpu_burn && echo ok`。
+
 ## 17. DCGM
 
 ```bash
@@ -253,6 +398,8 @@ systemctl enable --now nvidia-dcgm
 ```
 
 离线用本地 deb：`apt-get install -y /opt/packages/datacenter-gpu-manager_*.deb`。
+
+检查：`dpkg-query -W datacenter-gpu-manager`，`systemctl is-active nvidia-dcgm`。
 
 ## 18. nvidia-container-toolkit
 
@@ -266,6 +413,8 @@ systemctl restart docker
 
 有 containerd 时再执行 `nvidia-ctk runtime configure --runtime=containerd` 并重启 containerd。
 
+检查：`dpkg-query -W nvidia-container-toolkit`，`nvidia-ctk --version`。
+
 ## 19. 锁定版本
 
 ```bash
@@ -274,3 +423,5 @@ apt-mark hold nvidia-driver-580-open nvidia-dkms-580-open nvidia-kernel-source-5
 ```
 
 装了 `doca-ofed` 或 `nvshmem-cuda-13` 时一并 hold。`.run` 安装的驱动和 CUDA 不要 hold。
+
+检查：`apt-mark showhold`。
