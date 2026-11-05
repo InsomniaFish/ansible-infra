@@ -1,0 +1,87 @@
+# IOMMU：gpuenv_iommu_mode 只能是 off 或 pt
+# off：Intel 写入 intel_iommu=off iommu=off；AMD 写入 amd_iommu=off iommu=off
+# pt ：Intel 写入 intel_iommu=on iommu=pt；AMD 写入 amd_iommu=on iommu=pt
+# 写入 /etc/default/grub 的 GRUB_CMDLINE_LINUX，变更前备份，然后 update-grub
+# /proc/cmdline 要重启后才会变成新参数
+
+- name: 规范化 IOMMU 模式（YAML 会把未加引号的 off 解析成布尔值）
+  set_fact:
+    gpuenv_iommu_mode: "{{ 'off' if gpuenv_iommu_mode is sameas false else (gpuenv_iommu_mode | string) }}"
+  tags: [gpuenv, iommu]
+
+- name: 校验 IOMMU 模式只能是 off 或 pt
+  fail:
+    msg: "gpuenv_iommu_mode={{ gpuenv_iommu_mode }} 不合法，只能是 off 或 pt。off 必须写成 \"off\""
+  when: gpuenv_iommu_mode not in ['off', 'pt']
+  tags: [gpuenv, iommu]
+
+- name: 读取机器厂商
+  command: cat /sys/class/dmi/id/sys_vendor
+  register: iommu_sys_vendor
+  changed_when: false
+  tags: [gpuenv, iommu]
+
+- name: VMware 上拒绝写入 IOMMU 参数
+  fail:
+    msg: "VMware 客户机不能写 iommu=off。e1000 会出现 TX DMA map failed，USB 无法枚举，重启后网卡和键盘都不可用。请关闭 gpuenv_install_iommu。"
+  when: "'VMware' in iommu_sys_vendor.stdout"
+  tags: [gpuenv, iommu]
+
+- name: 按 CPU 厂商写入 GRUB IOMMU 参数
+  shell: |
+    set -euo pipefail
+    mode="{{ gpuenv_iommu_mode }}"
+    vendor=$(awk -F: '/^vendor_id/ {gsub(/[ \t]/,"",$2); print $2; exit}' /proc/cpuinfo)
+    case "$vendor" in
+      GenuineIntel) key=intel_iommu ;;
+      AuthenticAMD) key=amd_iommu ;;
+      *) echo "不支持的 CPU vendor_id: ${vendor:-未知}"; exit 1 ;;
+    esac
+    if [ "$mode" = "off" ]; then
+      want="$key=off iommu=off"
+    else
+      want="$key=on iommu=pt"
+    fi
+    grub=/etc/default/grub
+    line=$(grep -E '^GRUB_CMDLINE_LINUX=' "$grub" || true)
+    if [ -z "$line" ]; then
+      echo "未找到 GRUB_CMDLINE_LINUX="
+      exit 1
+    fi
+    val=$(printf '%s\n' "$line" | sed -n 's/^GRUB_CMDLINE_LINUX="\(.*\)"$/\1/p')
+    cleaned=$(printf '%s\n' "$val" | sed -E 's/(^|[[:space:]])(intel_iommu|amd_iommu|iommu)=[^[:space:]]*//g; s/^[[:space:]]+//; s/[[:space:]]+$//; s/[[:space:]]+/ /g')
+    if [ -n "$cleaned" ]; then
+      final="$want $cleaned"
+    else
+      final="$want"
+    fi
+    target="GRUB_CMDLINE_LINUX=\"$final\""
+    if [ "$line" = "$target" ]; then
+      echo "unchanged $target"
+      exit 0
+    fi
+    cp "$grub" "$grub.bak.$(date +%F_%H%M%S)"
+    sed -i "s|^GRUB_CMDLINE_LINUX=\".*\"|$target|" "$grub"
+    update-grub
+    echo "updated $target"
+  args:
+    executable: /bin/bash
+  register: iommu_grub
+  changed_when: "'updated ' in iommu_grub.stdout"
+  tags: [gpuenv, iommu]
+
+- name: 显示 GRUB 与当前内核命令行
+  shell: |
+    echo "GRUB: $(grep '^GRUB_CMDLINE_LINUX=' /etc/default/grub)"
+    echo "cmdline: $(cat /proc/cmdline)"
+    if ! grep -q 'iommu={{ gpuenv_iommu_mode }}' /proc/cmdline; then
+      echo "当前运行的内核尚未带上 iommu={{ gpuenv_iommu_mode }}，重启后 /proc/cmdline 才会生效"
+    fi
+  register: iommu_check
+  changed_when: false
+  tags: [gpuenv, iommu]
+
+- name: 输出 IOMMU 配置结果
+  debug:
+    msg: "{{ iommu_check.stdout_lines }}"
+  tags: [gpuenv, iommu]

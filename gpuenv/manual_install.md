@@ -1,8 +1,8 @@
-# GPU 环境手动安装参考文档（INSTALL_GPUENV.md）
+# GPU 环境手动安装参考文档（manual_install.md）
 
 本文档为 **Ubuntu 22.04** 命令行手动安装参考（不依赖 Ansible / deploy.yml），版本基线与 `vars/deploy.yml` 当前方案一致：驱动 580.105.08 / CUDA 13.0.2 / fabricmanager 580.105.08-1 / NCCL 2.28.9-1+cuda13.0 / OpenMPI 4.1.7 / nccl-tests 2.17.6 / MLNX OFED 24.10-3.2.5.0。
 
-**安装顺序（必须遵守）**：OFED（RDMA 栈）→ 驱动 → [重启] → CUDA → fabricmanager → NCCL → OpenMPI → nccl-tests / gpu-burn。
+**安装顺序（必须遵守）**：OFED（RDMA 栈）→ 驱动 → [重启] → CUDA → fabricmanager → NCCL → OpenMPI → nccl-tests → NVSHMEM → nvidia_peermem → PCI ACS → IOMMU → inotify → GDRCopy → gpu-burn → DCGM → container-toolkit。
 
 批量部署请用 Ansible（见 README）；本手册适用于单台机器、排障、或理解每步原理。
 
@@ -323,7 +323,7 @@ mpirun --prefix /usr/local/openmpi --allow-run-as-root -np 16 \
 多机前置（按需）：
 
 ```bash
-# Ubuntu 22.04 的 GPUDirect RDMA 由内核 DMA-BUF 提供，不要 modprobe nvidia_peermem
+modprobe nvidia_peermem                                    # GPUDirect RDMA，开机持久化见 /etc/modules-load.d/nvidia-peermem.conf
 lspci -vvv | grep ACSCtl                                   # 输出含 SrcValid+ 则需关闭 ACS
 ```
 

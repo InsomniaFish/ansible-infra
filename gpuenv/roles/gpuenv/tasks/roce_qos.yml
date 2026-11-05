@@ -1,0 +1,144 @@
+# RoCE PFC 与 ECN（NP/RP）
+# 仅用于以太网上的 RoCE。InfiniBand 不需要。
+# PFC：mlnx_qos --pfc / --trust
+# ECN：/sys/class/net/<网口>/ecn/roce_np/enable/<优先级>
+#      /sys/class/net/<网口>/ecn/roce_rp/enable/<优先级>
+# 网口：gpuenv_roce_ifaces 为空时自动取 mlx5 对应的以太网口
+# 开机由 roce-qos.service 重新下发
+
+- name: 校验 PFC 优先级位图为 8 个 0/1
+  fail:
+    msg: "gpuenv_pfc_priorities={{ gpuenv_pfc_priorities }} 必须是 8 个用逗号分隔的 0 或 1，例如 0,0,0,1,0,0,0,0"
+  when:
+    - gpuenv_install_pfc | bool
+    - gpuenv_pfc_priorities is not match('^[01](,[01]){7}$')
+  tags: [gpuenv, roce, pfc]
+
+- name: 校验 PFC trust 与 ECN 优先级
+  fail:
+    msg: "gpuenv_pfc_trust 只能是 dscp 或 pcp；gpuenv_ecn_priority 只能是 0 到 7"
+  when: >
+    (gpuenv_install_pfc | bool and gpuenv_pfc_trust not in ['dscp', 'pcp'])
+    or (gpuenv_install_ecn | bool and (gpuenv_ecn_priority | int) < 0)
+    or (gpuenv_install_ecn | bool and (gpuenv_ecn_priority | int) > 7)
+  tags: [gpuenv, roce, pfc, ecn]
+
+- name: 写入 RoCE QoS 脚本
+  copy:
+    dest: /usr/local/sbin/roce-qos.sh
+    mode: '0755'
+    content: |
+      #!/usr/bin/env bash
+      set -euo pipefail
+      DO_PFC={{ 1 if gpuenv_install_pfc | bool else 0 }}
+      DO_ECN={{ 1 if gpuenv_install_ecn | bool else 0 }}
+      PFC="{{ gpuenv_pfc_priorities }}"
+      TRUST="{{ gpuenv_pfc_trust }}"
+      ECN_PRIO="{{ gpuenv_ecn_priority }}"
+      IFACES="{{ gpuenv_roce_ifaces | join(' ') }}"
+
+      if ! command -v mlnx_qos >/dev/null 2>&1; then
+        echo "未找到 mlnx_qos，请先安装 DOCA/MLNX OFED"
+        exit 1
+      fi
+
+      if [ -z "$IFACES" ]; then
+        shopt -s nullglob
+        for ib in /sys/class/infiniband/mlx5_*; do
+          for net in "$ib"/device/net/*; do
+            [ -d "$net" ] || continue
+            IFACES="$IFACES $(basename "$net")"
+          done
+        done
+      fi
+      IFACES=$(echo $IFACES)
+      if [ -z "$IFACES" ]; then
+        echo "未找到 RoCE 网口。请设置 gpuenv_roce_ifaces"
+        exit 1
+      fi
+
+      for iface in $IFACES; do
+        echo "配置 $iface"
+        if [ "$DO_PFC" = "1" ]; then
+          mlnx_qos -i "$iface" --trust "$TRUST" --pfc "$PFC"
+        fi
+        if [ "$DO_ECN" = "1" ]; then
+          np="/sys/class/net/${iface}/ecn/roce_np/enable/${ECN_PRIO}"
+          rp="/sys/class/net/${iface}/ecn/roce_rp/enable/${ECN_PRIO}"
+          if [ ! -e "$np" ] || [ ! -e "$rp" ]; then
+            echo "$iface 没有 ECN NP/RP 接口：$np"
+            exit 1
+          fi
+          echo 1 > "$np"
+          echo 1 > "$rp"
+        fi
+      done
+  tags: [gpuenv, roce, pfc, ecn]
+
+- name: 写入 RoCE QoS 开机服务
+  copy:
+    dest: /etc/systemd/system/roce-qos.service
+    mode: '0644'
+    content: |
+      [Unit]
+      Description=Configure RoCE PFC and ECN
+      After=network-online.target
+      Wants=network-online.target
+
+      [Service]
+      Type=oneshot
+      ExecStart=/usr/local/sbin/roce-qos.sh
+      RemainAfterExit=yes
+
+      [Install]
+      WantedBy=multi-user.target
+  tags: [gpuenv, roce, pfc, ecn]
+
+- name: 立即下发并设置开机执行 RoCE QoS
+  systemd:
+    name: roce-qos
+    enabled: yes
+    state: restarted
+    daemon_reload: yes
+  tags: [gpuenv, roce, pfc, ecn]
+
+- name: 验证 PFC 与 ECN
+  shell: |
+    set -euo pipefail
+    shopt -s nullglob
+    ifaces="{{ gpuenv_roce_ifaces | join(' ') }}"
+    if [ -z "$ifaces" ]; then
+      for ib in /sys/class/infiniband/mlx5_*; do
+        for net in "$ib"/device/net/*; do
+          [ -d "$net" ] || continue
+          ifaces="$ifaces $(basename "$net")"
+        done
+      done
+    fi
+    for iface in $ifaces; do
+      echo "===== $iface ====="
+      if [ "{{ 1 if gpuenv_install_pfc | bool else 0 }}" = "1" ]; then
+        mlnx_qos -i "$iface"
+      fi
+      if [ "{{ 1 if gpuenv_install_ecn | bool else 0 }}" = "1" ]; then
+        echo -n "roce_np/{{ gpuenv_ecn_priority }}="
+        cat "/sys/class/net/${iface}/ecn/roce_np/enable/{{ gpuenv_ecn_priority }}"
+        echo -n "roce_rp/{{ gpuenv_ecn_priority }}="
+        cat "/sys/class/net/${iface}/ecn/roce_rp/enable/{{ gpuenv_ecn_priority }}"
+      fi
+    done
+  args:
+    executable: /bin/bash
+  register: roce_qos_verify
+  changed_when: false
+  failed_when: >-
+    (gpuenv_install_ecn | bool and (
+      ('roce_np/{{ gpuenv_ecn_priority }}=1' not in (roce_qos_verify.stdout | replace('\n', '')))
+      or ('roce_rp/{{ gpuenv_ecn_priority }}=1' not in (roce_qos_verify.stdout | replace('\n', '')))
+    ))
+  tags: [gpuenv, roce, pfc, ecn]
+
+- name: 输出 PFC 与 ECN 配置结果
+  debug:
+    msg: "{{ roce_qos_verify.stdout_lines }}"
+  tags: [gpuenv, roce, pfc, ecn]

@@ -1,0 +1,156 @@
+# GDRCopy v2.6：gdrdrv 优先于 DMA-BUF mmap（CUDA 13.0 不能 fallback 到 DMA-BUF）
+# 编译：CUDA=/usr/local/cuda-<主>.<次> packages/build-deb-packages.sh
+# 安装：gdrdrv-dkms、libgdrapi、gdrcopy-tests、gdrcopy
+# 加载并持久化：modprobe gdrdrv，/etc/modules-load.d/gdrdrv.conf
+
+- name: 检查 gdrdrv-dkms 是否已安装 {{ gpuenv_gdrcopy_version }}
+  shell: dpkg-query -W -f='${Version}' gdrdrv-dkms 2>/dev/null || true
+  register: gdrcopy_installed
+  changed_when: false
+  failed_when: false
+  tags: [gpuenv, gdrcopy]
+
+- name: 设置是否需要编译安装 GDRCopy
+  set_fact:
+    gpuenv_gdrcopy_need_install: >-
+      {{ gpuenv_force | bool
+         or not (gdrcopy_installed.stdout | trim).startswith(gpuenv_gdrcopy_version | regex_replace('^v', '')) }}
+  tags: [gpuenv, gdrcopy]
+
+- name: 安装 GDRCopy 编译依赖
+  apt:
+    name:
+      - git
+      - build-essential
+      - dkms
+      - debhelper
+      - devscripts
+      - fakeroot
+      - dpkg-dev
+      - numactl
+      - "linux-headers-{{ ansible_kernel }}"
+    state: present
+  when: gpuenv_gdrcopy_need_install | bool
+  tags: [gpuenv, gdrcopy]
+
+- name: 获取 GDRCopy {{ gpuenv_gdrcopy_version }} 源码
+  git:
+    repo: "{{ gpuenv_gdrcopy_repo }}"
+    dest: "{{ gpuenv_gdrcopy_src }}"
+    version: "{{ gpuenv_gdrcopy_version }}"
+    depth: 1
+  when: gpuenv_gdrcopy_need_install | bool
+  tags: [gpuenv, gdrcopy]
+
+- name: 编译 GDRCopy deb 包
+  shell: |
+    set -euo pipefail
+    cuda="{{ gpuenv_gdrcopy_cuda }}"
+    if [ ! -d "$cuda" ]; then
+      cuda=/usr/local/cuda
+    fi
+    if [ ! -x "$cuda/bin/nvcc" ]; then
+      echo "未找到 CUDA：$cuda"
+      exit 1
+    fi
+    echo "使用 CUDA=$cuda"
+    cd "{{ gpuenv_gdrcopy_src }}/packages"
+    CUDA="$cuda" ./build-deb-packages.sh
+  args:
+    executable: /bin/bash
+  when: gpuenv_gdrcopy_need_install | bool
+  tags: [gpuenv, gdrcopy]
+
+- name: 安装 GDRCopy deb 包
+  shell: |
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    cd "{{ gpuenv_gdrcopy_src }}/packages"
+    dpkg -i gdrdrv-dkms_*_amd64*.deb
+    dpkg -i libgdrapi_*_amd64*.deb
+    dpkg -i gdrcopy-tests_*_amd64*.deb
+    dpkg -i gdrcopy_*_amd64*.deb
+    apt-get -f install -y
+  args:
+    executable: /bin/bash
+  when: gpuenv_gdrcopy_need_install | bool
+  tags: [gpuenv, gdrcopy]
+
+- name: 检查是否存在 NVIDIA GPU
+  shell: lspci -n | grep -q '10de:' && echo yes || echo no
+  register: gdrcopy_has_gpu
+  changed_when: false
+  tags: [gpuenv, gdrcopy]
+
+- name: 无 NVIDIA GPU 时不加载 gdrdrv
+  debug:
+    msg: "未发现 NVIDIA GPU，跳过 gdrdrv。无 GPU 时 modprobe 会返回 No such device。"
+  when: gdrcopy_has_gpu.stdout == 'no'
+  tags: [gpuenv, gdrcopy]
+
+- name: 无 NVIDIA GPU 时删除 gdrdrv 开机加载
+  file:
+    path: /etc/modules-load.d/gdrdrv.conf
+    state: absent
+  when: gdrcopy_has_gpu.stdout == 'no'
+  tags: [gpuenv, gdrcopy]
+
+- name: 加载 gdrdrv
+  modprobe:
+    name: gdrdrv
+    state: present
+  when: gdrcopy_has_gpu.stdout == 'yes'
+  tags: [gpuenv, gdrcopy]
+
+- name: 持久化 gdrdrv 开机加载
+  copy:
+    dest: /etc/modules-load.d/gdrdrv.conf
+    mode: '0644'
+    content: |
+      gdrdrv
+  when: gdrcopy_has_gpu.stdout == 'yes'
+  tags: [gpuenv, gdrcopy]
+
+- name: 验证 gdrdrv 已加载
+  shell: |
+    lsmod | grep gdrdrv
+    echo "---"
+    modinfo gdrdrv | head -n 30
+    echo "---"
+    cat /etc/modules-load.d/gdrdrv.conf
+  register: gdrdrv_verify
+  changed_when: false
+  failed_when: >-
+    'gdrdrv' not in gdrdrv_verify.stdout
+    or (gdrdrv_verify.stdout_lines | last | trim) != 'gdrdrv'
+  when: gdrcopy_has_gpu.stdout == 'yes'
+  tags: [gpuenv, gdrcopy]
+
+- name: 运行 gdrcopy_sanity 与 gdrcopy_copybw
+  shell: |
+    set -euo pipefail
+    gdrcopy_sanity
+    gdrcopy_copybw
+  args:
+    executable: /bin/bash
+  when: gdrcopy_has_gpu.stdout == 'yes'
+  register: gdrcopy_tests
+  changed_when: false
+  tags: [gpuenv, gdrcopy]
+
+- name: 查看 GPU 与 NUMA 拓扑
+  shell: |
+    numactl --hardware || true
+    echo "---"
+    nvidia-smi topo -m || true
+  register: gdrcopy_topo
+  changed_when: false
+  failed_when: false
+  when: gdrcopy_has_gpu.stdout == 'yes'
+  tags: [gpuenv, gdrcopy]
+
+- name: 输出 GDRCopy 验证结果
+  debug:
+    msg: "{{ gdrdrv_verify.stdout_lines + ['-----'] + gdrcopy_tests.stdout_lines + ['-----'] + gdrcopy_topo.stdout_lines }}"
+  when: gdrcopy_has_gpu.stdout == 'yes'
+  tags: [gpuenv, gdrcopy]

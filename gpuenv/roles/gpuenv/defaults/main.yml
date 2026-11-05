@@ -13,15 +13,22 @@
 # --- 组件安装开关（默认全部 false，由用户自行指定） ---
 gpuenv_install_ofed: false              # MLNX OFED / RDMA 栈（必须在 GPU 驱动之前安装）
 gpuenv_install_driver: false            # NVIDIA GPU 驱动
-gpuenv_install_peermem: false           # GPUDirect RDMA（Ubuntu 22.04 使用 DMA-BUF，不加载 nvidia_peermem）
+gpuenv_install_peermem: false           # nvidia_peermem（加载并写入开机持久化）
 gpuenv_install_pci_acs: false           # 关闭 PCI ACS（多机通信要求）
+gpuenv_install_iommu: false             # 配置 IOMMU（off 或 pt，二选一）
+gpuenv_install_inotify: false           # 持久化 inotify/fsnotify 上限
+gpuenv_install_pfc: false               # RoCE PFC（无损优先级）
+gpuenv_install_ecn: false               # RoCE ECN NP/RP（拥塞控制）
 gpuenv_install_cuda: false              # CUDA Toolkit
 gpuenv_install_fabricmanager: false     # nvidia-fabricmanager（版本须与驱动完全一致）
 gpuenv_install_gpu_burn: false          # gpu-burn（GPU 压力测试）
-gpuenv_install_nccl: false              # NCCL 库 + OpenMPI + nccl-tests
+gpuenv_install_nccl: false              # NCCL 库
+gpuenv_install_openmpi: false           # OpenMPI
+gpuenv_install_nccl_tests: false        # nccl-tests（编译依赖已安装的 OpenMPI）
 gpuenv_install_dcgm: false              # DCGM 数据中心 GPU 管理器（硬件诊断/监控）
 gpuenv_install_container_toolkit: false # nvidia-container-toolkit（容器内使用 GPU）
 gpuenv_install_nvshmem: false           # NVSHMEM 多 GPU/多节点通信库（含驱动参数配置）
+gpuenv_install_gdrcopy: false           # GDRCopy v2.6（gdrdrv 加载并开机持久化）
 
 # --- 行为开关 ---
 gpuenv_nccl_tests_ssh_trust: true        # nccl-tests 多机测试前置：配置主机间 SSH 免密互信（置 false 跳过）
@@ -41,6 +48,16 @@ gpuenv_apt_hold: true                 # 安装完成后 apt-mark hold 驱动/CUD
 #          nvshmem-cuda-<CUDA 大版本>）
 # package：离线安装（使用本地安装包，通过对应 gpuenv_<组件>_package 指定本地路径或离线包 URL）
 gpuenv_driver_install_mode: "online"
+# 在线驱动内核模块：open=开源（默认）/ proprietary=闭源
+gpuenv_driver_kernel: "open"
+gpuenv_driver_kernel_suffix: "{{ '-open' if gpuenv_driver_kernel == 'open' else '' }}"
+# IOMMU：off=关闭；pt=透传。二者只能选一个
+gpuenv_iommu_mode: "off"
+# RoCE：网口留空则自动发现 mlx5 以太网口。PFC 位图第 4 位是优先级 3。
+gpuenv_roce_ifaces: []
+gpuenv_pfc_priorities: "0,0,0,1,0,0,0,0"
+gpuenv_pfc_trust: "dscp"
+gpuenv_ecn_priority: 3
 gpuenv_cuda_install_mode: "online"
 gpuenv_fm_install_mode: "online"
 gpuenv_ofed_install_mode: "online"
@@ -87,6 +104,10 @@ gpuenv_nvshmem_package: ""
 # NVSHMEM 版本与下载基址（online 按 <base>/<版本>/local_installers/ 拼接引导 deb URL）
 gpuenv_nvshmem_version: "3.7.2"
 gpuenv_nvshmem_repo_base: "https://developer.download.nvidia.cn/compute/nvshmem"
+gpuenv_gdrcopy_version: "v2.6"
+gpuenv_gdrcopy_repo: "https://github.com/NVIDIA/gdrcopy.git"
+gpuenv_gdrcopy_src: "/usr/local/src/gdrcopy"
+gpuenv_gdrcopy_cuda: "/usr/local/cuda-{{ gpuenv_cuda_version.split('.')[:2] | join('.') }}"
 
 # --- 源与版本兜底默认值（正常情况下由 vars/gpuenv_repos.yml 提供） ---
 gpuenv_repo_base_url: "https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64"

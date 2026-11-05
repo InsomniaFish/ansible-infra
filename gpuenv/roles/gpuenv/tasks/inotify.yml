@@ -1,0 +1,35 @@
+# inotify / fsnotify 上限持久化
+# 写入 /etc/sysctl.d/99-ai-inference-fsnotify.conf 后执行 sysctl --system
+
+- name: 写入 inotify sysctl 持久化配置
+  copy:
+    dest: /etc/sysctl.d/99-ai-inference-fsnotify.conf
+    mode: '0644'
+    content: |
+      fs.inotify.max_user_watches = 1048576
+      fs.inotify.max_user_instances = 8192
+      fs.inotify.max_queued_events = 65536
+  tags: [gpuenv, inotify]
+
+- name: 加载 sysctl 配置
+  command: sysctl --system
+  changed_when: false
+  tags: [gpuenv, inotify]
+
+- name: 验证 inotify 参数
+  shell: |
+    sysctl fs.inotify.max_user_watches
+    sysctl fs.inotify.max_user_instances
+    sysctl fs.inotify.max_queued_events
+  register: inotify_verify
+  changed_when: false
+  failed_when: >-
+    'fs.inotify.max_user_watches = 1048576' not in inotify_verify.stdout
+    or 'fs.inotify.max_user_instances = 8192' not in inotify_verify.stdout
+    or 'fs.inotify.max_queued_events = 65536' not in inotify_verify.stdout
+  tags: [gpuenv, inotify]
+
+- name: 输出 inotify 参数
+  debug:
+    msg: "{{ inotify_verify.stdout_lines }}"
+  tags: [gpuenv, inotify]

@@ -37,6 +37,7 @@
     url: "{{ gpuenv_gpu_burn_url }}"
     dest: "{{ gpuenv_pkg_dir }}/gpu-burn-src.zip"
     mode: '0644'
+    timeout: 120
   when:
     - gpuenv_gpu_burn_install_mode == 'online'
     - gpuenv_force or not gpu_burn_bin.stat.exists

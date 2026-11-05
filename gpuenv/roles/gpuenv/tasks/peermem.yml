@@ -1,7 +1,10 @@
-# GPUDirect RDMA（Ubuntu 22.04）
-# 内核 6.8 起由 DMA-BUF 提供，不再加载 nvidia_peermem。
-# 残留 /etc/modules-load.d/nvidia-peermem.conf 会在开机时因模块不存在而失败。
-# 启用方式：-e gpuenv_install_peermem=true
+# nvidia_peermem：GPUDirect RDMA（Ubuntu 22.04）
+# 启用方式：gpuenv_install_peermem=true
+# 加载：modprobe nvidia_peermem
+# 持久化：/etc/modules-load.d/nvidia-peermem.conf 内容为 nvidia_peermem
+# 加载失败时按已安装的 dkms 路线重装后再加载：
+#   开源：nvidia-dkms-<系列>-open=<已安装版本>
+#   闭源：nvidia-dkms-<系列>=<已安装版本>
 
 - name: 检查 NVIDIA 驱动模块是否可用
   shell: modinfo nvidia >/dev/null 2>&1 && echo yes || echo no
@@ -9,29 +12,116 @@
   changed_when: false
   tags: [gpuenv, peermem]
 
-- name: 驱动未安装时跳过 GPUDirect 配置
+- name: 驱动未安装时跳过 peermem 配置
   debug:
-    msg: "NVIDIA 驱动未安装，跳过 GPUDirect RDMA 配置（安装驱动后重新运行即可）"
+    msg: "NVIDIA 驱动未安装，跳过 nvidia_peermem 配置（安装驱动后重新运行即可）"
   when: nvidia_mod_check.stdout | trim != 'yes'
   tags: [gpuenv, peermem]
 
-- name: 移除 nvidia_peermem 开机加载配置
-  file:
-    path: /etc/modules-load.d/nvidia-peermem.conf
-    state: absent
-  when: nvidia_mod_check.stdout | trim == 'yes'
-  tags: [gpuenv, peermem]
-
-- name: 卸载已加载的 nvidia_peermem
+- name: 加载 nvidia_peermem
   modprobe:
     name: nvidia_peermem
-    state: absent
+    state: present
+  register: peermem_load
   failed_when: false
   when: nvidia_mod_check.stdout | trim == 'yes'
   tags: [gpuenv, peermem]
 
-- name: GPUDirect RDMA 结果提示
-  debug:
-    msg: "Ubuntu 22.04 使用内核 DMA-BUF 提供 GPUDirect RDMA，已跳过 nvidia_peermem"
+- name: 确认 nvidia_peermem 是否已加载
+  shell: lsmod | grep -q '^nvidia_peermem' && echo yes || echo no
+  register: peermem_loaded
+  changed_when: false
   when: nvidia_mod_check.stdout | trim == 'yes'
+  tags: [gpuenv, peermem]
+
+- name: 加载失败时收集诊断信息
+  shell: |
+    set +e
+    echo "===== ofed_info ====="
+    ofed_info -s 2>/dev/null || true
+    echo "===== dkms status ====="
+    dkms status 2>/dev/null || true
+    echo "===== packages ====="
+    dpkg -l | egrep 'doca-ofed|nvidia-driver|nvidia-dkms|nvidia-fabricmanager' || true
+    echo "===== dmesg ====="
+    dmesg -T | egrep -i 'nvidia_peermem|Unknown symbol|peer|rdma|mlx5|ib_core' | tail -n 200 || true
+  register: peermem_diag
+  changed_when: false
+  failed_when: false
+  when:
+    - nvidia_mod_check.stdout | trim == 'yes'
+    - peermem_loaded.stdout | trim != 'yes'
+  tags: [gpuenv, peermem]
+
+- name: 输出 nvidia_peermem 加载失败诊断
+  debug:
+    msg: "{{ peermem_diag.stdout_lines }}"
+  when:
+    - nvidia_mod_check.stdout | trim == 'yes'
+    - peermem_loaded.stdout | trim != 'yes'
+  tags: [gpuenv, peermem]
+
+- name: 按已安装的 dkms 路线重装后再加载 nvidia_peermem
+  shell: |
+    set -euo pipefail
+    export DEBIAN_FRONTEND=noninteractive
+    export NEEDRESTART_MODE=a
+    major="{{ gpuenv_driver_major }}"
+    pkg=""
+    for cand in "nvidia-dkms-${major}-open" "nvidia-dkms-${major}"; do
+      st=$(dpkg-query -W -f='${db:Status-Abbrev}' "$cand" 2>/dev/null | cut -c2 || true)
+      if [ "$st" = "i" ]; then
+        pkg="$cand"
+        break
+      fi
+    done
+    if [ -z "$pkg" ]; then
+      echo "未找到已安装的 nvidia-dkms-${major} 或 nvidia-dkms-${major}-open"
+      exit 1
+    fi
+    ver=$(dpkg-query -W -f='${Version}' "$pkg")
+    echo "重装 ${pkg}=${ver}"
+    apt-get install --reinstall -y \
+      -o Dpkg::Options::=--force-confdef \
+      -o Dpkg::Options::=--force-confold \
+      "${pkg}=${ver}"
+    modprobe nvidia_peermem
+    lsmod | grep -q '^nvidia_peermem'
+  args:
+    executable: /bin/bash
+  register: peermem_reinstall
+  when:
+    - nvidia_mod_check.stdout | trim == 'yes'
+    - peermem_loaded.stdout | trim != 'yes'
+  tags: [gpuenv, peermem]
+
+- name: 重装后再次确认 nvidia_peermem 已加载
+  shell: lsmod | grep -q '^nvidia_peermem' && echo yes || echo no
+  register: peermem_loaded_after
+  changed_when: false
+  when:
+    - nvidia_mod_check.stdout | trim == 'yes'
+    - peermem_loaded.stdout | trim != 'yes'
+  tags: [gpuenv, peermem]
+
+- name: nvidia_peermem 仍未加载时报错
+  fail:
+    msg: >-
+      nvidia_peermem 加载失败。已尝试按已安装的 nvidia-dkms 重装后再次 modprobe。
+      请查看上方诊断：ofed_info、dkms status、相关软件包和 dmesg。
+  when:
+    - nvidia_mod_check.stdout | trim == 'yes'
+    - peermem_loaded.stdout | trim != 'yes'
+    - peermem_loaded_after.stdout | default('no') | trim != 'yes'
+  tags: [gpuenv, peermem]
+
+- name: 持久化 nvidia_peermem 开机加载
+  copy:
+    dest: /etc/modules-load.d/nvidia-peermem.conf
+    mode: '0644'
+    content: |
+      nvidia_peermem
+  when:
+    - nvidia_mod_check.stdout | trim == 'yes'
+    - (peermem_loaded.stdout | trim == 'yes') or (peermem_loaded_after is defined and peermem_loaded_after.stdout | trim == 'yes')
   tags: [gpuenv, peermem]

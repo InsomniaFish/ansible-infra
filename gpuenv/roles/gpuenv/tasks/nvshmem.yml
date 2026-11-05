@@ -1,6 +1,6 @@
 ---
 # 可选组件：NVSHMEM（NVIDIA SHMEM 多 GPU / 多节点通信库，OpenSHMEM 兼容 API）
-# 依赖：GPU 驱动（libcuda）+ CUDA；GPUDirect RDMA 在 Ubuntu 22.04 走内核 DMA-BUF，无需 nvidia_peermem
+# 依赖：GPU 驱动（libcuda）+ CUDA；Ubuntu 22.04 的 GPUDirect RDMA 需要先加载 nvidia_peermem
 # 安装模式（gpuenv_nvshmem_install_mode）：
 #   - online（默认）【URL+apt】：按 gpuenv_nvshmem_version 自动拼接下载 nvshmem-local-repo
 #     引导 deb（等价官方 wget + dpkg -i 方式）：

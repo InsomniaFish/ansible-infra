@@ -11,15 +11,22 @@
 # 可选组件（开关变量，写于 vars/deploy.yml）：
 #   gpuenv_install_ofed              MLNX OFED / RDMA 栈（须先于驱动安装）
 #   gpuenv_install_driver            NVIDIA GPU 驱动
-#   gpuenv_install_peermem           GPUDirect RDMA（Ubuntu 22.04 使用 DMA-BUF，依赖驱动）
+#   gpuenv_install_peermem           nvidia_peermem（加载并开机持久化，依赖驱动）
 #   gpuenv_install_pci_acs           关闭 PCI ACS（多机通信要求）
+#   gpuenv_install_iommu             IOMMU（gpuenv_iommu_mode=off 或 pt，二选一）
+#   gpuenv_install_inotify           inotify/fsnotify 上限持久化
+#   gpuenv_install_pfc               RoCE PFC
+#   gpuenv_install_ecn               RoCE ECN NP/RP
 #   gpuenv_install_cuda              CUDA Toolkit
 #   gpuenv_install_fabricmanager     nvidia-fabricmanager（版本须与驱动一致）
 #   gpuenv_install_gpu_burn          gpu-burn 压力测试
-#   gpuenv_install_nccl              NCCL + OpenMPI + nccl-tests
+#   gpuenv_install_nccl              NCCL 库
+#   gpuenv_install_openmpi           OpenMPI
+#   gpuenv_install_nccl_tests        nccl-tests
 #   gpuenv_install_dcgm              DCGM 监控
 #   gpuenv_install_container_toolkit nvidia-container-toolkit
 #   gpuenv_install_nvshmem           NVSHMEM 多 GPU/多节点通信库（含驱动参数配置）
+#   gpuenv_install_gdrcopy           GDRCopy v2.6（编译安装、加载并持久化 gdrdrv）
 #
 # 安装模式（每个组件均可指定，写于 vars/deploy.yml）：
 #   gpuenv_<组件>_install_mode: online     在线安装（默认）

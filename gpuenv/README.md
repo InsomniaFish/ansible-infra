@@ -2,42 +2,51 @@
 
 GPU 服务器环境自动化部署项目。基于 Ansible 实现在线安装、检测、卸载 NVIDIA GPU 全套运行环境，覆盖硬件验收、服务器巡检、批量部署场景。
 
+## 使用流程
+
+![gpuenv 使用流程](../docs/diagrams/gpuenv-workflow.svg)
+
 ## 功能概述
 
 - **组件按需安装**：默认不安装任何组件，全部由用户通过 `-e gpuenv_install_<组件>=true` 显式指定
 - **在线/离线双模式**：每个组件按"版本 / 安装方式 / 在线地址 / 离线地址"四要素规范配置，均支持 `online`（在线）与 `package`（离线）两种安装模式
-- **OFED 双 flavor**：IB 驱动支持 `mlnx_ofed`（MLNX_OFED）与 `doca_ofed`（DOCA-Host）二选一，与安装方式自由组合
+- **可兼容性**：同一效果可以换路径达到，选一种即可。在线 apt/直链和离线 `package` 装的是同一组件。开源与闭源内核模块共用同一套用户态驱动。`mlnx_ofed` 与 `doca_ofed` 都提供 RDMA 栈，版本号不能混用。22.04 的 `nvidia_peermem` 与 24.04 的 DMA-BUF 都是 GPUDirect RDMA。fabricmanager 留空跟随驱动，与写成同一版本等效
 - **版本可控**：软件源与版本独立配置，支持命令行临时覆盖，驱动子包自动锁定版本避免依赖冲突
 - **幂等执行**：已安装且版本一致的组件自动跳过，可安全重复运行
 - **组件检测**：只读检测各节点组件安装状况，输出结构化报告
 - **组件级卸载**：支持卸载全部、核心组件或指定单个组件（如仅卸载 NCCL、DCGM）
 - **免密配置**：内置 SSH 免密脚本，支持各主机不同密码
 
+逻辑判断：
+
+- **系统分支**：本分支只接受 Ubuntu 22.04（`>=22.04` 且 `<22.10`）。软件源是 `ubuntu2204`，GPUDirect RDMA 加载 `nvidia_peermem`。`ubuntu24.04` 分支用 `ubuntu2404`，走内核 DMA-BUF，不加载 `nvidia_peermem`。其余安装顺序和组件开关相同。
+- **驱动与 CUDA**：在线驱动默认开源模块（`gpuenv_driver_kernel=open`），可改为 `proprietary`。驱动主系列必须不低于 CUDA 的最低要求（CUDA 13.0 要 580 系列）。fabricmanager 版本与驱动一致，留空则跟随驱动。
+- **在线或离线**：`online` 走 apt 或直链；`package` 用 `gpuenv_<组件>_package`。离线包默认放在 `/opt/packages`。已安装且版本相同则跳过，`gpuenv_force=true` 才重装。
+- **OFED**：`mlnx_ofed` 与 `doca_ofed` 二选一，且必须装在 GPU 驱动之前。两者的版本号含义不同。
+- **调优**：IOMMU 只能是 `off` 或 `pt`，VMware 上拒绝写 `iommu=off`。PCI ACS 关闭后由 systemd 开机重做。inotify 三项写入 sysctl。PFC / ECN 默认关，只给 RoCE，InfiniBand 不要开。没有 NVIDIA GPU 时不加载 `gdrdrv`。
+
 ## 目录结构
 
 ```
-ansible-gpuenv/
+gpuenv/
 ├── site.yml                    # 安装 playbook
 ├── check.yml                   # 检测 playbook
 ├── uninstall.yml               # 卸载 playbook
-├── inventory.ini               # 主机清单（实际环境，含凭据，勿外传）
-├── inventory.ini.example       # 主机清单模板
+├── inventory.ini.example       # 主机清单模板（实际清单在仓库根目录 inventory/inventory.ini）
 ├── vars/
-│   ├── deploy.yml              # 部署配置清单（装哪些组件/模式/包路径，默认全注释）
-│   ├── deploy.yml.example      # 配置清单模板（含预设场景）
-│   └── gpuenv_repos.yml        # 软件源与版本配置（独立维护）
+│   ├── deploy.yml              # 当前部署清单（本分支已启用多机训练场景）
+│   ├── deploy.yml.example      # 配置清单模板
+│   └── gpuenv_repos.yml        # 软件源与版本（ubuntu2204，.cn 镜像）
 ├── roles/
 │   ├── gpuenv/                 # 安装 role
-│   │   ├── defaults/main.yml   #   行为开关、路径、驱动子包列表
-│   │   ├── templates/cuda.sh.j2
-│   │   └── tasks/              #   按组件拆分的任务文件
 │   ├── gpuenv_check/           # 检测 role（只读）
 │   └── gpuenv_uninstall/       # 卸载 role
-├── install_gpuenv.sh           # 单机版安装脚本（无 Ansible 依赖）
-├── install_ansible.sh          # Ansible 环境安装辅助脚本
-├── ssh-setup.sh                # SSH 免密配置脚本
-├── INSTALL_GPUENV.md           # 手动命令行安装参考文档（不用 Ansible）
+├── install_gpuenv.sh           # 单机脚本，已暂停维护
+├── ssh-setup.sh                # SSH 免密
+└── manual_install.md           # 不用 Ansible 的手工命令
 ```
+
+命令在仓库根目录执行。`install_ansible.sh` 也在仓库根目录。
 
 ## 环境要求
 
@@ -45,7 +54,7 @@ ansible-gpuenv/
 |---|---|
 | 目标系统 | Ubuntu 22.04 |
 | 控制节点 | Ansible 2.10+、Python 3 |
-| 网络 | 可访问 developer.download.nvidia.com（.cn 国内镜像同域可用，nvshmem 默认走 .cn）、github.com（直链类组件）；OFED：content.mellanox.com（mlnx_ofed tgz）、linux.mellanox.com（doca_ofed online 配源） |
+| 网络 | CUDA 源走 `developer.download.nvidia.cn` 的 `ubuntu2204`；gpu-burn、nccl-tests 走 `ghproxy.net`；OFED：`content.mellanox.com`（mlnx_ofed）、`linux.mellanox.com`（doca_ofed） |
 | 权限 | root 用户（或配置 sudo 提权） |
 
 ## 快速开始
@@ -53,14 +62,14 @@ ansible-gpuenv/
 ### 0. 安装 Ansible（控制节点未安装时）
 
 ```bash
-bash install_ansible.sh    # 安装 ansible + sshpass
+bash install_ansible.sh    # 在仓库根目录执行，安装 ansible + sshpass
 ```
 
 ### 1. 配置主机清单
 
 ```bash
-cp inventory.ini.example inventory.ini
-# 编辑 inventory.ini，填入主机 IP 与认证信息
+# 编辑仓库根目录清单（模板见 inventory/inventory.ini.example）
+vim inventory/inventory.ini
 ```
 
 各主机密码不同时，在主机行单独指定 `ansible_password`（覆盖组级配置）。
@@ -76,35 +85,30 @@ cp inventory.ini.example inventory.ini
 ### 3. 验证连通性
 
 ```bash
-ansible -i inventory.ini gpu_nodes -m ping
+ansible -i inventory/inventory.ini gpu_nodes -m ping
 ```
 
 ### 4. 配置部署清单
 
-要安装的组件、安装模式、离线包路径统一写在 `vars/deploy.yml`（部署配置清单）中，默认全部注释（即不安装任何组件）：
-
-```bash
-cp vars/deploy.yml.example vars/deploy.yml   # 首次使用时从模板创建（仓库已含空清单则直接编辑）
-vim vars/deploy.yml                           # 取消注释并启用所需组件，预设场景见 example
-```
+角色默认不装任何组件。当前 `gpuenv/vars/deploy.yml` 已写成多机训练场景（OFED、驱动、CUDA、NCCL 等为 `true`），直接跑 `site.yml` 会按这份清单安装。不需要的项改成 `false` 或注释掉。空模板在 `vars/deploy.yml.example`。
 
 ### 5. 执行部署
 
 配置清单写好后，一条命令即可完成部署（无需任何 `-e` 参数）：
 
 ```bash
-ansible-playbook -i inventory.ini site.yml
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml
 ```
 
 临时覆盖（命令行 `-e` 优先级高于配置清单，仅本次生效）：
 
 ```bash
 # 本次临时指定版本（不改动 deploy.yml）
-ansible-playbook -i inventory.ini site.yml \
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml \
   -e gpuenv_driver_version=580.105.07 -e gpuenv_cuda_version=13.0.1
 
 # 本次临时追加安装一个组件
-ansible-playbook -i inventory.ini site.yml -e gpuenv_install_gpu_burn=true
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml -e gpuenv_install_gpu_burn=true
 ```
 
 > 说明：`-e` 优先级高于 deploy.yml，因此既可临时追加组件，也可用 `-e gpuenv_install_<组件>=false` 临时跳过清单中已启用的组件；要长期增删组件请直接编辑 deploy.yml。
@@ -112,26 +116,33 @@ ansible-playbook -i inventory.ini site.yml -e gpuenv_install_gpu_burn=true
 仅部署指定节点：
 
 ```bash
-ansible-playbook -i inventory.ini site.yml --limit node01
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml --limit node01
 ```
 
 ## 组件列表
 
-所有组件默认不安装，在 `vars/deploy.yml` 中将对应开关置 `true` 启用（`-e gpuenv_install_<组件>=true` 可临时启用）：
+角色默认不安装。下表按 playbook 的安装顺序排列。在线驱动默认 `gpuenv_driver_kernel=open`，装 `nvidia-driver-<系列>-open`；改成 `proprietary` 则装闭源模块。
 
 | 开关 | 组件 | 用途 |
 |---|---|---|
-| `gpuenv_install_ofed=true` | OFED 驱动 / RDMA 栈 | IB 网络驱动，必须在 GPU 驱动之前安装；`mlnx_ofed` / `doca_ofed` 二选一 |
-| `gpuenv_install_driver=true` | NVIDIA GPU 驱动 | GPU 基础驱动 |
-| `gpuenv_install_peermem=true` | GPUDirect RDMA | Ubuntu 22.04 使用内核 DMA-BUF，不加载 nvidia_peermem |
-| `gpuenv_install_pci_acs=true` | 关闭 PCI ACS | 多机通信要求 |
+| `gpuenv_install_ofed=true` | OFED 驱动 / RDMA 栈 | 必须在 GPU 驱动之前；`mlnx_ofed` / `doca_ofed` 二选一 |
+| `gpuenv_install_driver=true` | NVIDIA GPU 驱动 | 在线默认开源内核模块 |
 | `gpuenv_install_cuda=true` | CUDA Toolkit | GPU 计算工具链 |
-| `gpuenv_install_fabricmanager=true` | nvidia-fabricmanager | NVLink 多卡互联（版本须与驱动一致） |
+| `gpuenv_install_fabricmanager=true` | nvidia-fabricmanager | 版本须与驱动一致 |
+| `gpuenv_install_nccl=true` | NCCL | 多卡集合通信库 |
+| `gpuenv_install_openmpi=true` | OpenMPI | MPI，与 NCCL 分开安装 |
+| `gpuenv_install_nccl_tests=true` | nccl-tests | 带宽测试，依赖 OpenMPI |
+| `gpuenv_install_nvshmem=true` | NVSHMEM | 写入 `nvidia.conf`，需再重启一次 |
+| `gpuenv_install_peermem=true` | nvidia_peermem | 加载并写入开机持久化 |
+| `gpuenv_install_pci_acs=true` | 关闭 PCI ACS | 多机通信要求 |
+| `gpuenv_install_iommu=true` | IOMMU | `off` 或 `pt`，二选一。VMware 不要设 `off` |
+| `gpuenv_install_inotify=true` | inotify 上限 | 写入 sysctl 并持久化 |
+| `gpuenv_install_pfc=true` | RoCE PFC | 默认关；InfiniBand 不要开 |
+| `gpuenv_install_ecn=true` | RoCE ECN NP/RP | 默认关；InfiniBand 不要开 |
+| `gpuenv_install_gdrcopy=true` | GDRCopy v2.6 | 编译并加载 gdrdrv；没有 NVIDIA GPU 则跳过加载 |
 | `gpuenv_install_gpu_burn=true` | gpu-burn | GPU 压力测试 |
-| `gpuenv_install_nccl=true` | NCCL + OpenMPI + nccl-tests | 多卡集合通信与带宽测试 |
-| `gpuenv_install_dcgm=true` | DCGM（datacenter-gpu-manager） | GPU 硬件诊断与监控 |
+| `gpuenv_install_dcgm=true` | DCGM | GPU 硬件诊断与监控 |
 | `gpuenv_install_container_toolkit=true` | nvidia-container-toolkit | 容器内使用 GPU（会重启 docker） |
-| `gpuenv_install_nvshmem=true` | NVSHMEM（nvshmem-cuda-\<大版本\>） | 多 GPU/多节点通信库，随装写入 GPUDirect RDMA 所需的 nvidia 驱动参数 |
 
 ## 安装模式与配置四要素
 
@@ -166,7 +177,9 @@ ansible-playbook -i inventory.ini site.yml --limit node01
 | cuda | `gpuenv_cuda_version` | `gpuenv_cuda_install_mode` | `gpuenv_cuda_package` | cuda_*_linux.run |
 | fabricmanager | `gpuenv_fm_version` | `gpuenv_fm_install_mode` | `gpuenv_fm_package` | nvidia-fabricmanager_*.deb |
 | ofed | `gpuenv_ofed_version` | `gpuenv_ofed_install_mode` | `gpuenv_ofed_package` | mlnx_ofed：MLNX_OFED_LINUX-*.tgz；doca_ofed：本地 deb 目录 |
-| nccl 三件套 | `gpuenv_nccl_version` / `gpuenv_openmpi_version` | `gpuenv_nccl_install_mode` / `gpuenv_openmpi_install_mode` / `gpuenv_nccl_tests_install_mode` | `gpuenv_nccl_package`（deb 目录）<br>`gpuenv_openmpi_package`（源码包）<br>`gpuenv_nccl_tests_package`（源码包） | deb + tar.gz + zip |
+| nccl | `gpuenv_nccl_version` | `gpuenv_nccl_install_mode` | `gpuenv_nccl_package`（deb 目录） | deb |
+| openmpi | `gpuenv_openmpi_version` | `gpuenv_openmpi_install_mode` | `gpuenv_openmpi_package`（源码包） | tar.gz |
+| nccl_tests | — | `gpuenv_nccl_tests_install_mode` | `gpuenv_nccl_tests_package`（源码包） | zip |
 | gpu_burn | — | `gpuenv_gpu_burn_install_mode` | `gpuenv_gpu_burn_package` | gpu-burn zip 源码包 |
 | dcgm | — | `gpuenv_dcgm_install_mode` | `gpuenv_dcgm_package` | datacenter-gpu-manager deb |
 | container_toolkit | — | `gpuenv_container_toolkit_install_mode` | `gpuenv_container_toolkit_package` | nvidia-container-toolkit deb |
@@ -196,7 +209,7 @@ gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86
 #gpuenv_ofed_install_mode: online
 ```
 
-> doca_ofed 在线模式与官方安装方式等价：GPG 密钥导入 `/etc/apt/trusted.gpg.d/`、源写入 `/etc/apt/sources.list.d/doca.list`（官方另提供 doca-host 引导 deb，其作用同样是写入此源配置）。切换 flavor 前建议先卸载现有 OFED（`ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=ofed`；doca 模式会同步卸载 doca-host 并清理 DOCA 源与密钥）。
+> doca_ofed 在线模式与官方安装方式等价：GPG 密钥导入 `/etc/apt/trusted.gpg.d/`、源写入 `/etc/apt/sources.list.d/doca.list`（官方另提供 doca-host 引导 deb，其作用同样是写入此源配置）。切换 flavor 前建议先卸载现有 OFED（`ansible-playbook -i inventory/inventory.ini gpuenv/uninstall.yml -e gpuenv_uninstall_components=ofed`；doca 模式会同步卸载 doca-host 并清理 DOCA 源与密钥）。
 
 离线安装的推荐方式是在 `vars/deploy.yml` 中配置（示例，完整场景见 `vars/deploy.yml.example` 场景 C）：
 
@@ -213,7 +226,7 @@ gpuenv_cuda_package: /opt/packages/cuda_13.0.2_580.95.05_linux.run
 配置好后同样一条命令执行：
 
 ```bash
-ansible-playbook -i inventory.ini site.yml
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml
 ```
 
 > **注意**：CUDA run 包文件名中包含捆绑驱动版本（如 `cuda_13.0.2_580.95.05_linux.run`），与 `gpuenv_driver_version` 可能不同；其他版本的直链需按[官方归档页](https://developer.nvidia.com/cuda-toolkit-archive)调整。
@@ -223,14 +236,14 @@ ansible-playbook -i inventory.ini site.yml
 软件源和版本统一维护在 `vars/gpuenv_repos.yml`：
 
 ```yaml
-gpuenv_repo_base_url: "https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64"
+gpuenv_repo_base_url: "https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64"
 gpuenv_keyring_deb: "cuda-keyring_1.1-1_all.deb"
-gpuenv_gpu_burn_url: "https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
+gpuenv_gpu_burn_url: "https://ghproxy.net/https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip"
 gpuenv_driver_version: "580.105.08"
 gpuenv_cuda_version: "13.0.2"
 gpuenv_fm_version: ""                  # 留空则与驱动版本一致
 gpuenv_nccl_version: "2.28.9"          # 需与 CUDA 版本配套
-gpuenv_nccl_tests_url: "https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"
+gpuenv_nccl_tests_url: "https://ghproxy.net/https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip"
 gpuenv_openmpi_version: "4.1.7"
 gpuenv_openmpi_url: "https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz"
 gpuenv_ofed_flavor: "mlnx_ofed"        # mlnx_ofed / doca_ofed 二选一（语义见 OFED 双 flavor 章节）
@@ -249,16 +262,16 @@ role defaults < vars/gpuenv_repos.yml < vars/deploy.yml < 主机/组变量 < -e 
 
 ```bash
 # 检测所有节点组件状况（只读，不做修改）
-ansible-playbook -i inventory.ini check.yml
+ansible-playbook -i inventory/inventory.ini gpuenv/check.yml
 
 # 卸载指定节点核心组件（驱动 / CUDA / fabricmanager / gpu-burn）
-ansible-playbook -i inventory.ini uninstall.yml --limit node01
+ansible-playbook -i inventory/inventory.ini gpuenv/uninstall.yml --limit node01
 
 # 卸载全部组件（核心 + 可选）
-ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=all
+ansible-playbook -i inventory/inventory.ini gpuenv/uninstall.yml -e gpuenv_uninstall_components=all
 
 # 仅卸载指定组件（逗号分隔，不影响其他组件）
-ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=nccl,dcgm
+ansible-playbook -i inventory/inventory.ini gpuenv/uninstall.yml -e gpuenv_uninstall_components=nccl,dcgm
 ```
 
 `gpuenv_uninstall_components` 取值：
@@ -274,7 +287,7 @@ ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=n
 - 核心：`driver` `cuda` `fabricmanager` `gpu_burn`
 - 可选：`nccl` `openmpi` `nccl_tests` `dcgm` `container_toolkit` `ofed` `peermem` `pci_acs` `nvshmem`
 
-检测报告涵盖：gcc / cuda-keyring / 驱动 / CUDA / fabricmanager / dkms 模块 / nvidia-smi / nvcc / 环境变量 / gpu-burn / NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED / GPUDirect RDMA（DMA-BUF） / PCI ACS。
+检测报告涵盖：gcc / cuda-keyring / 驱动 / CUDA / fabricmanager / dkms 模块 / nvidia-smi / nvcc / 环境变量 / gpu-burn / NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED / nvidia_peermem / PCI ACS。
 
 ## 多机通信配置（IB / RoCE 场景）
 
@@ -283,7 +296,7 @@ ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=n
 | 配置项 | 开关变量 | 默认 | 说明 |
 |---|---|---|---|
 | OFED 驱动 | `gpuenv_install_ofed` | false | IB 网络驱动（`mlnx_ofed` / `doca_ofed` 二选一），先于 GPU 驱动安装 |
-| GPUDirect RDMA | `gpuenv_install_peermem` | false | Ubuntu 22.04 使用内核 DMA-BUF，不加载 nvidia_peermem，并清理残留开机加载配置 |
+| nvidia_peermem | `gpuenv_install_peermem` | false | 加载 nvidia_peermem，并写入 /etc/modules-load.d/nvidia-peermem.conf |
 | PCI ACS 关闭 | `gpuenv_install_pci_acs` | false | 幂等关闭所有支持 ACS 的设备，并配置开机服务自动执行 |
 | NVSHMEM 通信库 | `gpuenv_install_nvshmem` | false | 多 GPU/多节点通信库（`nvshmem-cuda-<大版本>`，依赖驱动 + CUDA），随装写入 GPUDirect RDMA 驱动参数（需重启生效） |
 
@@ -304,10 +317,10 @@ NVSHMEM 安装与官方命令逐步等价（实现见 `roles/gpuenv/tasks/nvshme
 
 > 离线模式：官方下载页获取同版本引导 deb 后，配置 `gpuenv_nvshmem_install_mode=package` + `gpuenv_nvshmem_package=<路径>`，后续安装步骤完全一致。
 
-在 `vars/deploy.yml` 中启用对应开关后执行 `ansible-playbook -i inventory.ini site.yml` 即可；临时执行可：
+在 `vars/deploy.yml` 中启用对应开关后执行 `ansible-playbook -i inventory/inventory.ini gpuenv/site.yml` 即可；临时执行可：
 
 ```bash
-ansible-playbook -i inventory.ini site.yml \
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml \
   -e gpuenv_install_peermem=true -e gpuenv_install_pci_acs=true
 ```
 
@@ -324,6 +337,7 @@ nccl-tests 带宽测试示例（需有 GPU）：
 | 变量 | 默认值 | 说明 |
 |---|---|---|
 | `gpuenv_force` | false | 忽略已安装检测，强制重装/重编译 |
+| `gpuenv_driver_kernel` | open | 在线内核模块：`open` 开源 / `proprietary` 闭源 |
 | `gpuenv_reboot_after_driver` | false | 驱动安装后自动重启（加载内核模块） |
 | `gpuenv_apt_hold` | true | 安装后 `apt-mark hold` 驱动/CUDA/fabricmanager/NCCL（及 doca flavor 下的 doca-ofed、nvshmem 组件的 nvshmem-cuda-X）全部版本联动包，防止 `apt upgrade` 意外升级（重装/升级/卸载前自动解除） |
 | `gpuenv_uninstall_autoremove` | true | 卸载后执行 `apt autoremove --purge` 清理孤立依赖（仅 uninstall.yml 读取，可用 `-e gpuenv_uninstall_autoremove=false` 临时跳过） |
@@ -344,11 +358,11 @@ bash install_gpuenv.sh --help                                   # 帮助
 tags 需配合对应组件开关使用：
 
 ```bash
-ansible-playbook -i inventory.ini site.yml -e gpuenv_install_driver=true --tags driver   # 仅驱动
-ansible-playbook -i inventory.ini site.yml -e gpuenv_install_cuda=true --tags cuda       # 仅 CUDA
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml -e gpuenv_install_driver=true --tags driver   # 仅驱动
+ansible-playbook -i inventory/inventory.ini gpuenv/site.yml -e gpuenv_install_cuda=true --tags cuda       # 仅 CUDA
 ```
 
-可用 tags：`precheck` `deps` `repo` `ofed` `driver` `peermem` `pci_acs` `cuda` `fabricmanager` `gpu_burn` `nccl` `dcgm` `container_toolkit` `nvshmem`
+可用 tags：`precheck` `deps` `repo` `ofed` `driver` `cuda` `fabricmanager` `nccl` `openmpi` `nccl_tests` `nvshmem` `peermem` `pci_acs` `iommu` `inotify` `pfc` `ecn` `gdrcopy` `gpu_burn` `dcgm` `container_toolkit`
 
 ## 注意事项
 
@@ -359,7 +373,8 @@ ansible-playbook -i inventory.ini site.yml -e gpuenv_install_cuda=true --tags cu
 5. **container_toolkit 会重启 docker**：K8s 控制节点慎用，建议在 worker 节点启用
 6. **NVSHMEM 驱动参数需重启生效**：nvshmem 组件写入 `/etc/modprobe.d/nvidia.conf`（`NVreg_EnableStreamMemOPs` 等 GPUDirect RDMA 参数）并自动 `update-initramfs`，运行中的内核模块不会热加载，需重启后生效；生效验证：`cat /proc/driver/nvidia/params | grep EnableStreamMemOPs` 应为 `1`（role 收尾自动检查并三态提示；官方命令全程对照见「多机通信配置」章节）
 7. **OFED package 模式下载**：若 worker 节点访问 `content.mellanox.com` 出现 DNS 解析失败（偶发），可在控制节点用 `curl` 预下载 tgz 后，通过 `-e gpuenv_ofed_package=/path/to/mlnx_ofed.tgz` 传入本地路径，由 Ansible 分发到各节点；doca_ofed 离线模式同理，从 DOCA 官方源 `https://linux.mellanox.com/public/repo/doca/<版本>/ubuntu22.04/x86_64/` 全量下载 deb 放入一个目录后填 `gpuenv_ofed_package=/path/to/doca-debs`
-8. **凭据安全**：`inventory.ini` 含密码，请勿提交到版本库或外传
+8. **凭据安全**：`inventory/inventory.ini` 含密码，请勿提交到版本库或外传
+9. **在线驱动默认开源**：`gpuenv_driver_kernel=open`。闭源模块设为 `proprietary`
 
 ## 驱动与 CUDA 版本兼容性说明
 
@@ -417,8 +432,8 @@ gpuenv_driver_version: "580.95.05"
 2. **先卸载 apt 版驱动**：run 安装器检测到 dpkg 管理的驱动会拒绝安装，需先卸载再部署：
 
    ```bash
-   ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=driver
-   ansible-playbook -i inventory.ini site.yml
+   ansible-playbook -i inventory/inventory.ini gpuenv/uninstall.yml -e gpuenv_uninstall_components=driver
+   ansible-playbook -i inventory/inventory.ini gpuenv/site.yml
    ```
 
 3. **fabricmanager 版本必须同步**：须与驱动完全一致。切换驱动版本后，离线包 `/opt/packages/nvidia-fabricmanager.deb` 版本不再匹配，需重新下载对应版本 deb、或临时禁用 fabricmanager、或改回在线模式安装
@@ -428,4 +443,4 @@ gpuenv_driver_version: "580.95.05"
 
 ## 相关文档
 
-- [INSTALL_GPUENV.md](INSTALL_GPUENV.md)：手动命令行安装参考文档（在线/离线，含全部包下载链接）
+- [manual_install.md](manual_install.md)：手动命令行安装参考文档（在线/离线，含全部包下载链接）

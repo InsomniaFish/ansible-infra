@@ -44,6 +44,8 @@
     gpuenv_install_driver
     or gpuenv_install_ofed
     or gpuenv_install_nccl
+    or gpuenv_install_openmpi
+    or gpuenv_install_nccl_tests
     or gpuenv_install_gpu_burn
   tags: [gpuenv, deps]
 
@@ -63,16 +65,6 @@
   when: gpuenv_install_driver
   tags: [gpuenv, driver]
 
-- name: 配置 GPUDirect RDMA（Ubuntu 22.04 使用 DMA-BUF，依赖驱动）
-  include_tasks: peermem.yml
-  when: gpuenv_install_peermem
-  tags: [gpuenv, peermem]
-
-- name: 关闭 PCI ACS（多机通信要求）
-  include_tasks: pci_acs.yml
-  when: gpuenv_install_pci_acs
-  tags: [gpuenv, pci_acs]
-
 - name: 安装 CUDA Toolkit
   include_tasks: cuda_toolkit.yml
   when: gpuenv_install_cuda
@@ -83,24 +75,69 @@
   when: gpuenv_install_fabricmanager
   tags: [gpuenv, fabricmanager]
 
-- name: 编译 gpu-burn
-  include_tasks: gpu_burn.yml
-  when: gpuenv_install_gpu_burn
-  tags: [gpuenv, gpu_burn]
-
 # 主机间 SSH 免密互信（nccl-tests 多机测试前置，默认开启）
 - name: 配置主机间 SSH 免密互信（nccl-tests 前置）
   include_tasks: ssh_trust.yml
   when: >
-    gpuenv_install_nccl
+    gpuenv_install_nccl_tests
     and (gpuenv_nccl_tests_ssh_trust | bool)
     and (ansible_play_hosts | length > 1)
-  tags: [gpuenv, nccl, ssh_trust]
+  tags: [gpuenv, nccl_tests, ssh_trust]
 
-- name: 安装 NCCL + OpenMPI + nccl-tests
+- name: 安装 NCCL 库
   include_tasks: nccl.yml
   when: gpuenv_install_nccl
-  tags: [gpuenv, nccl, openmpi]
+  tags: [gpuenv, nccl]
+
+- name: 安装 OpenMPI
+  include_tasks: openmpi.yml
+  when: gpuenv_install_openmpi
+  tags: [gpuenv, openmpi]
+
+- name: 安装 nccl-tests
+  include_tasks: nccl_tests.yml
+  when: gpuenv_install_nccl_tests
+  tags: [gpuenv, nccl_tests]
+
+- name: 安装 NVSHMEM 多 GPU/多节点通信库
+  include_tasks: nvshmem.yml
+  when: gpuenv_install_nvshmem
+  tags: [gpuenv, nvshmem]
+
+- name: 加载 nvidia_peermem 并写入开机持久化
+  include_tasks: peermem.yml
+  when: gpuenv_install_peermem
+  tags: [gpuenv, peermem]
+
+- name: 关闭 PCI ACS（多机通信要求）
+  include_tasks: pci_acs.yml
+  when: gpuenv_install_pci_acs
+  tags: [gpuenv, pci_acs]
+
+- name: 配置 IOMMU（off 与 pt 二选一）
+  include_tasks: iommu.yml
+  when: gpuenv_install_iommu
+  tags: [gpuenv, iommu]
+
+- name: 持久化 inotify 参数
+  include_tasks: inotify.yml
+  when: gpuenv_install_inotify
+  tags: [gpuenv, inotify]
+
+- name: 配置 RoCE PFC 与 ECN
+  include_tasks: roce_qos.yml
+  when: gpuenv_install_pfc or gpuenv_install_ecn
+  tags: [gpuenv, roce, pfc, ecn]
+
+- name: 安装 GDRCopy 并加载 gdrdrv
+  include_tasks: gdrcopy.yml
+  when: gpuenv_install_gdrcopy
+  tags: [gpuenv, gdrcopy]
+
+- name: 编译 gpu-burn
+  include_tasks: gpu_burn.yml
+  when: gpuenv_install_gpu_burn
+  tags: [gpuenv, gpu_burn]
 
 - name: 安装 DCGM 监控
   include_tasks: dcgm.yml
@@ -111,11 +148,6 @@
   include_tasks: container_toolkit.yml
   when: gpuenv_install_container_toolkit
   tags: [gpuenv, container_toolkit]
-
-- name: 安装 NVSHMEM 多 GPU/多节点通信库
-  include_tasks: nvshmem.yml
-  when: gpuenv_install_nvshmem
-  tags: [gpuenv, nvshmem]
 
 # 锁定组件包版本（apt-mark hold）：防止 apt upgrade / unattended-upgrades 意外升级
 # 驱动 / CUDA / fabricmanager / NCCL；重装/升级版本前由上方 apt_unhold 自动解除
@@ -131,7 +163,8 @@
       请通过 -e gpuenv_install_driver=true 等参数指定要安装的组件。
   when: >
     not (gpuenv_install_ofed or gpuenv_install_driver or gpuenv_install_peermem
-         or gpuenv_install_pci_acs or gpuenv_install_cuda or gpuenv_install_fabricmanager
-         or gpuenv_install_gpu_burn or gpuenv_install_nccl or gpuenv_install_dcgm
-         or gpuenv_install_container_toolkit or gpuenv_install_nvshmem)
+         or gpuenv_install_pci_acs or gpuenv_install_iommu or gpuenv_install_inotify
+         or gpuenv_install_pfc or gpuenv_install_ecn or gpuenv_install_cuda or gpuenv_install_fabricmanager
+         or gpuenv_install_gpu_burn or gpuenv_install_nccl or gpuenv_install_openmpi or gpuenv_install_nccl_tests or gpuenv_install_dcgm
+         or gpuenv_install_container_toolkit or gpuenv_install_nvshmem or gpuenv_install_gdrcopy)
   tags: [gpuenv]

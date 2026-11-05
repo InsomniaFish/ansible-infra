@@ -1,13 +1,19 @@
 ---
 # 步骤 4：安装 NVIDIA 显卡驱动
 # 安装模式（gpuenv_driver_install_mode）：
-#   - online（默认）：在线 apt 安装开源内核模块（nvidia-driver-<系列>-open），精确指定版本时锁定全部驱动子包，避免依赖冲突
+#   - online（默认）：在线 apt 安装。gpuenv_driver_kernel=open（默认）装 nvidia-driver-<系列>-open；
+#     proprietary 装闭源 nvidia-driver-<系列>。精确指定版本时锁定全部驱动子包
 #   - package：使用官方 .run 安装器（离线/无 apt 源场景），--silent --dkms 安装
 
-- name: 检查驱动是否已安装（仅完全安装状态 ii 视为已安装）
+- name: 校验驱动内核模块类型
+  fail:
+    msg: "gpuenv_driver_kernel={{ gpuenv_driver_kernel }} 不合法，只允许 open 或 proprietary"
+  when: gpuenv_driver_kernel not in ['open', 'proprietary']
+  tags: [gpuenv, driver]
+
+- name: 检查驱动是否已安装（已安装含 hold 状态 hi）
   shell: |
-    pkg=nvidia-driver-{{ gpuenv_driver_major }}
-    [ "{{ gpuenv_driver_install_mode }}" = "online" ] && pkg=${pkg}-open
+    pkg=nvidia-driver-{{ gpuenv_driver_major }}{{ gpuenv_driver_kernel_suffix if gpuenv_driver_install_mode == 'online' else '' }}
     status=$(dpkg-query -W -f='${db:Status-Abbrev}' "$pkg" 2>/dev/null | cut -c1-2)
     [ "$(printf '%s' "$status" | cut -c2)" = "i" ] && dpkg-query -W -f='${Version}' "$pkg"
   register: driver_installed
@@ -41,7 +47,7 @@
 
 - name: 查找源中与目标版本匹配的驱动包版本
   shell: >
-    apt-cache madison nvidia-driver-{{ gpuenv_driver_major }}-open
+    apt-cache madison nvidia-driver-{{ gpuenv_driver_major }}{{ gpuenv_driver_kernel_suffix }}
     | awk -F'|' '{gsub(/ /,"",$2); print $2}'
     | grep -F "{{ gpuenv_driver_version }}" | head -n 1
   register: driver_repo_ver
@@ -62,7 +68,7 @@
     for p in {{ gpuenv_driver_subpackages | join(' ') }}; do
       name="${p}-{{ gpuenv_driver_major }}"
       if [ "$p" = "nvidia-driver" ] || [ "$p" = "nvidia-dkms" ] || [ "$p" = "nvidia-kernel-source" ]; then
-        name="${name}-open"
+        name="${name}{{ gpuenv_driver_kernel_suffix }}"
       fi
       apt-cache show "$name" >/dev/null 2>&1 && echo "${name}={{ driver_repo_ver.stdout | trim }}"
     done
@@ -82,7 +88,7 @@
 
 - name: 驱动已安装且版本一致，跳过（online 模式）
   debug:
-    msg: "驱动 nvidia-driver-{{ gpuenv_driver_major }}-open 已安装 {{ gpuenv_driver_installed_ver }}，与目标版本一致，跳过"
+    msg: "驱动 nvidia-driver-{{ gpuenv_driver_major }}{{ gpuenv_driver_kernel_suffix }} 已安装 {{ gpuenv_driver_installed_ver }}，与目标版本一致，跳过"
   when:
     - gpuenv_driver_install_mode == 'online'
     - not gpuenv_driver_need_install
@@ -148,6 +154,7 @@
   command: >
     {{ gpuenv_pkg_dir }}/nvidia-driver.run --silent --dkms
     --no-questions --no-cc-version-check
+    {{ '--kernel-module-type=open' if gpuenv_driver_kernel == 'open' else '' }}
   register: driver_run_install
   when:
     - gpuenv_driver_install_mode == 'package'

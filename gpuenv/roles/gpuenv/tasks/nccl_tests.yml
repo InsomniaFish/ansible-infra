@@ -1,0 +1,178 @@
+# 可选组件：nccl-tests
+# 启用方式：gpuenv_install_nccl_tests=true
+# 编译依赖已安装的 OpenMPI（/usr/local/openmpi）和 CUDA
+#   gpuenv_nccl_tests_install_mode  online=URL / package=离线 zip
+
+- name: 检查 nccl-tests 是否已编译
+
+  stat:
+    path: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
+  register: nccl_tests_bin
+  tags: [gpuenv, nccl_tests]
+
+- name: nccl-tests 已编译，跳过
+
+  debug:
+    msg: "nccl-tests 已编译 ({{ gpuenv_nccl_tests_dir }}/build)，跳过"
+  when: not gpuenv_force and nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: package 模式校验 nccl-tests 安装包参数
+  fail:
+    msg: >-
+      gpuenv_nccl_tests_install_mode=package 但未提供安装包，请通过
+      gpuenv_nccl_tests_package=<本地 zip 路径（支持通配符）或离线包 URL> 指定
+  when:
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package | length == 0
+  tags: [gpuenv, nccl_tests]
+
+- name: 下载 nccl-tests 源码（online 模式，URL 直链）
+
+  get_url:
+    url: "{{ gpuenv_nccl_tests_url }}"
+    dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
+    mode: '0644'
+  when:
+    - gpuenv_nccl_tests_install_mode == 'online'
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: 下载离线 nccl-tests 源码包（package 模式且离线地址为 URL）
+  get_url:
+    url: "{{ gpuenv_nccl_tests_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
+    mode: '0644'
+  when:
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is match('^https?://')
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: 解析 nccl-tests 本地源码包路径（package 模式且离线地址为本地路径，支持通配符如 nccl-tests*.zip）
+
+  set_fact:
+    nccl_tests_pkg_glob: "{{ nccl_pkg_glob_expr }}"
+    nccl_tests_pkg_file: "{{ query('fileglob', nccl_pkg_glob_expr) | first | default('') }}"
+  vars:
+    nccl_pkg_glob_expr: >-
+      {{ gpuenv_nccl_tests_package
+         if gpuenv_nccl_tests_package.startswith('/')
+         else gpuenv_pkg_dir ~ '/' ~ gpuenv_nccl_tests_package }}
+  when:
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is not match('^https?://')
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: nccl-tests 源码包未匹配时报错
+  fail:
+    msg: >-
+      未找到与 {{ nccl_tests_pkg_glob }} 匹配的源码包。
+      支持通配符（如 {{ gpuenv_pkg_dir }}/nccl-tests*.zip，裸文件名按 {{ gpuenv_pkg_dir }} 解析），
+      多个匹配时取字典序第一个。
+  when:
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is not match('^https?://')
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+    - nccl_tests_pkg_file | default('') | length == 0
+  tags: [gpuenv, nccl_tests]
+
+- name: 拷贝本地 nccl-tests 源码包到安装包目录（支持通配符）
+  copy:
+    src: "{{ nccl_tests_pkg_file }}"
+    dest: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
+    mode: '0644'
+  when:
+    - gpuenv_nccl_tests_install_mode == 'package'
+    - gpuenv_nccl_tests_package is not match('^https?://')
+    - gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: 清理旧源码目录
+
+  file:
+    path: "{{ gpuenv_nccl_tests_dir }}"
+    state: absent
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+# 解压到临时目录后移动到目标目录（与 zip 内顶层目录名解耦，目标目录统一为 /opt/build/nccl-tests）
+  tags: [gpuenv, nccl_tests]
+- name: 清理临时解压目录（nccl-tests）
+
+  file:
+    path: /tmp/nccl-tests-extract
+    state: absent
+  tags: [gpuenv, nccl_tests]
+
+- name: 确保构建目录父目录存在（nccl-tests）
+
+  file:
+    path: "{{ gpuenv_nccl_tests_dir | dirname }}"
+    state: directory
+    mode: '0755'
+  tags: [gpuenv, nccl_tests]
+
+# 解压到临时目录保留完整结构（zip 内含 src/ 等子目录，平铺会破坏 Makefile 结构），
+# 再将顶层目录移动为固定名（与 zip 内顶层目录名解耦）
+- name: 确保 nccl-tests 解压临时目录存在
+  file:
+    path: "{{ gpuenv_build_dir }}/nccl-tests-extract"
+    state: directory
+    mode: '0755'
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: 解压 nccl-tests 源码到临时目录（保留目录结构）
+  unarchive:
+    src: "{{ gpuenv_pkg_dir }}/nccl-tests-src.zip"
+    dest: "{{ gpuenv_build_dir }}/nccl-tests-extract"
+    remote_src: yes
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: 移动 nccl-tests 源码到目标目录
+  shell: |
+    src_dir=$(ls -d {{ gpuenv_build_dir }}/nccl-tests-extract/* | head -n 1)
+    mv "$src_dir" {{ gpuenv_nccl_tests_dir }}
+  args:
+    creates: "{{ gpuenv_nccl_tests_dir }}"
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: 清理 nccl-tests 解压临时目录
+  file:
+    path: "{{ gpuenv_build_dir }}/nccl-tests-extract"
+    state: absent
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: 编译 nccl-tests（多机模式，使用源码编译的 OpenMPI）
+
+  command: make -j MPI=1 MPI_HOME=/usr/local/openmpi CUDA_HOME=/usr/local/cuda
+  args:
+    chdir: "{{ gpuenv_nccl_tests_dir }}"
+  when: gpuenv_force or not nccl_tests_bin.stat.exists
+
+# 注意：编译完成后保留 {{ gpuenv_pkg_dir }}/nccl-tests-src.zip 源码包，不做删除
+  tags: [gpuenv, nccl_tests]
+
+- name: 验证 nccl-tests 编译产物
+
+  stat:
+    path: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
+  register: nccl_tests_final
+  tags: [gpuenv, nccl_tests]
+
+- name: nccl-tests 编译失败时报错
+
+  fail:
+    msg: "nccl-tests 编译失败，请检查编译日志"
+  when: not nccl_tests_final.stat.exists
+  tags: [gpuenv, nccl_tests]
+
+- name: nccl-tests 编译成功
+
+  debug:
+    msg: "nccl-tests 编译成功，测试命令示例: {{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf -b 8 -e 128M -f 2 -g <GPU数>"
+  tags: [gpuenv, nccl_tests]
