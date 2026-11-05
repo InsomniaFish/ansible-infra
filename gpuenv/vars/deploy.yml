@@ -13,7 +13,7 @@
 #   6  OpenMPI
 #   7  nccl-tests
 #   8  NVSHMEM（写入 nvidia.conf，需再重启一次才生效）
-#   9  nvidia_peermem（加载并开机持久化）
+#   9  nvidia_peermem（22.04 加载并开机持久化；24.04 的同名开关走 DMA-BUF）
 #  10  关闭 PCI ACS
 #  11  IOMMU（off 与 pt 二选一）
 #  12  inotify
@@ -22,6 +22,17 @@
 #  15  gpu-burn
 #  16  DCGM
 #  17  nvidia-container-toolkit
+#
+# 操作系统差异与选择：
+#   本清单只给 Ubuntu 22.04（22.04 ≤ 版本 < 22.10）。24.04 用 ubuntu24.04 分支的 deploy.yml，不要混用。
+#   分支决定软件源：本分支 ubuntu2204，24.04 分支 ubuntu2404。在线安装不用改 URL。
+#   GPUDirect 用同一个开关 gpuenv_install_peermem。多机 RDMA 建议两边都设 true。
+#     22.04：加载 nvidia_peermem，并写入 /etc/modules-load.d/nvidia-peermem.conf。
+#     24.04：走内核 DMA-BUF，不加载 nvidia_peermem。不要在 24.04 上 modprobe nvidia_peermem，残留开机配置会导致开机失败。
+#   离线包必须带本系统的名字。驱动、CUDA、NCCL 版本可以和 24.04 选同一套：
+#     MLNX_OFED 用 *-ubuntu22.04-x86_64.tgz
+#     DOCA 用 .../doca/<版本>/ubuntu22.04/x86_64/
+#     NVSHMEM 用 nvshmem-local-repo-ubuntu2204-*.deb
 #===============================================================================
 
 
@@ -61,7 +72,7 @@ gpuenv_install_nccl_tests: true
 # 8. NVSHMEM（写入 /etc/modprobe.d/nvidia.conf，需再重启一次）
 gpuenv_install_nvshmem: true
 
-# 9. nvidia_peermem（依赖驱动；加载并写入开机配置）
+# 9. nvidia_peermem（22.04：依赖驱动，加载并写入开机配置）
 gpuenv_install_peermem: true
 
 # 10. 关闭 PCI ACS（开机由 systemd 重做）
