@@ -1,376 +1,278 @@
-# GPU 环境手动安装参考文档（manual_install.md）
+# GPU 环境手动安装（manual_install.md）
 
-本文档为 **Ubuntu 22.04** 命令行手动安装参考（不依赖 Ansible / deploy.yml），版本基线与 `vars/deploy.yml` 当前方案一致：驱动 580.105.08 / CUDA 13.0.2 / fabricmanager 580.105.08-1 / NCCL 2.28.9-1+cuda13.0 / OpenMPI 4.1.7 / nccl-tests 2.17.6 / MLNX OFED 24.10-3.2.5.0。
+按 `gpuenv` role 的实现手工安装。命令在目标机上以 root 执行。版本以 `vars/gpuenv_repos.yml` 为准：驱动 580.105.08、CUDA 13.0.2、NCCL 2.28.9、OpenMPI 4.1.7、NVSHMEM 3.7.2。
 
-**安装顺序（必须遵守）**：OFED（RDMA 栈）→ 驱动 → [重启] → CUDA → fabricmanager → NCCL → OpenMPI → nccl-tests → NVSHMEM → nvidia_peermem → PCI ACS → IOMMU → inotify → GDRCopy → gpu-burn → DCGM → container-toolkit。
+## 前置条件
 
-批量部署请用 Ansible（见 README）；本手册适用于单台机器、排障、或理解每步原理。
-
----
-
-## 一、离线安装包下载链接汇总
-
-在线安装可直接跳过本章。离线环境提前在可联网机器下载，上传到目标机 `/opt/packages/`：
-
-| 组件 | 版本 | 下载链接 | 说明 |
-|---|---|---|---|
-| CUDA Toolkit | 13.0.2 | https://developer.download.nvidia.com/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run | 历史版本归档：https://developer.nvidia.com/cuda-toolkit-archive |
-| NVIDIA 驱动 | 580.105.08 | https://download.nvidia.com/XFree86/Linux-x86_64/580.105.08/NVIDIA-Linux-x86_64-580.105.08.run | 按版本号拼接；驱动选择页：https://www.nvidia.com/drivers/ |
-| fabricmanager | 580.105.08-1 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb | **必须与驱动版本严格一致** |
-| MLNX OFED | 24.10-3.2.5.0 | https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz | 下载页：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/ |
-| NCCL deb | 2.28.9-1+cuda13.0 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb | libnccl2 与 libnccl-dev 两个都下载 |
-| NCCL dev deb | 2.28.9-1+cuda13.0 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb | 同上 |
-| OpenMPI 源码 | 4.1.7 | https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz | 下载页：https://www.open-mpi.org/software/ompi/v4.1/ |
-| nccl-tests 源码 | 2.17.6 | https://github.com/NVIDIA/nccl-tests/archive/refs/tags/v2.17.6.zip | Releases 页选版本 |
-| gpu-burn 源码 | master | https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip | 指定版本：refs/tags/v1.1.zip |
-| cuda-keyring | 1.1-1 | https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb | 配置 NVIDIA apt 源用 |
-
-批量下载（可联网机器执行，国内建议用 `developer.download.nvidia.cn` 域名）：
+- 本文件对应 **Ubuntu 22.04**（`22.04` ≤ 版本 `< 22.10`）。`ubuntu24.04` 分支用 `ubuntu2404` 软件源，GPUDirect RDMA 走 DMA-BUF，不要加载 `nvidia_peermem`。
+- root。`DEBIAN_FRONTEND=noninteractive`。
+- 目录：安装包 `/opt/packages`，编译 `/opt/build`。离线包先放到 `/opt/packages`。
+- 在线安装驱动、CUDA、fabricmanager、NCCL、DCGM、container-toolkit 前，先装 cuda-keyring。
+- 编译驱动、OFED、OpenMPI、nccl-tests、gpu-burn、GDRCopy 前安装：`build-essential`、`linux-headers-$(uname -r)`、`unzip`、`curl`。GDRCopy 还要 `git`、`dkms`、`debhelper`、`devscripts`、`fakeroot`、`dpkg-dev`、`numactl`。
+- 安装顺序：OFED → 驱动 → 重启 → CUDA → fabricmanager → NCCL → OpenMPI → nccl-tests → NVSHMEM → nvidia_peermem → PCI ACS → IOMMU → inotify → PFC/ECN → GDRCopy → gpu-burn → DCGM → container-toolkit。
+- 已装且版本相同可跳过。驱动、CUDA、fabricmanager、NCCL 装完后 `apt-mark hold`。`.run` 安装的驱动和 CUDA 不归 dpkg 管，不能 hold。
+- 驱动在线默认开源模块（`nvidia-driver-<系列>-open`）。闭源去掉包名里的 `-open`，`.run` 不加 `--kernel-module-type=open`。
+- 驱动主系列不低于 CUDA 要求：CUDA 13.0 需要 580 系列。fabricmanager 版本与驱动一致。
+- NVSHMEM 写入 `/etc/modprobe.d/nvidia.conf` 后要再重启一次才生效。
+- VMware 不要写 `iommu=off`，e1000 和 USB 会起不来。没有 NVIDIA GPU 时不要 `modprobe gdrdrv`。PFC/ECN 只给 RoCE，InfiniBand 不要开。
 
 ```bash
-mkdir -p /opt/packages && cd /opt/packages
-curl -fLO https://developer.download.nvidia.cn/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run
-curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
-curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb
-curl -fLO https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb
-curl -fLO https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz
-curl -fLO https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz
-curl -fL  https://github.com/NVIDIA/nccl-tests/archive/refs/tags/v2.17.6.zip -o nccl-tests-2.17.6.zip
-curl -fL  https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip -o gpu-burn-master.zip
-```
-
----
-
-## 二、前置准备
-
-```bash
-# 编译依赖（驱动 dkms / OpenMPI / nccl-tests 编译需要）
+export DEBIAN_FRONTEND=noninteractive
+mkdir -p /opt/packages /opt/build
 apt-get update
 apt-get install -y build-essential linux-headers-$(uname -r) unzip curl
-
-# 验证 gcc
-gcc --version
 ```
 
-配置 NVIDIA 官方 apt 源（在线安装驱动 / CUDA / fabricmanager / NCCL 需要）：
+## 1. CUDA 软件源
+
+在线安装驱动、CUDA、fabricmanager、NCCL、DCGM、container-toolkit 时需要。
 
 ```bash
-curl -fsSL https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb -o /tmp/cuda-keyring.deb
-apt-get install -y /tmp/cuda-keyring.deb
+curl -fsSL -o /opt/packages/cuda-keyring.deb \
+  https://developer.download.nvidia.cn/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb
+apt-get install -y /opt/packages/cuda-keyring.deb
 apt-get update
-# 国内加速可把域名换为 developer.download.nvidia.cn
 ```
 
----
+## 2. OFED
 
-## 三、MLNX OFED / RDMA 栈（须先于驱动）
+必须在 GPU 驱动之前。`mlnx_ofed` 与 `doca_ofed` 二选一。
 
-### 在线安装（apt 原生 RDMA 栈，适用大多数场景）
+`mlnx_ofed` 在线装系统 RDMA 栈，版本号不参与安装：
 
 ```bash
 apt-get install -y rdma-core ibverbs-providers ibverbs-utils \
   infiniband-diags perftest libibverbs-dev librdmacm-dev
 ```
 
-验证：`ibv_devices` 能列出 IB 设备（无 IB/RoCE 网卡时输出空属正常）。
-
-### 离线安装（官方 MLNX_OFED tgz，需要完整 OFED 功能时）
-
-> 下载：https://content.mellanox.com/ofed/MLNX_OFED-24.10-3.2.5.0/MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz
-> 下载页（选其他版本）：https://network.nvidia.com/products/infiniband-drivers/linux/mlnx_ofed/
+`mlnx_ofed` 离线用 Ubuntu 22.04 的 tgz，跑 `mlnxofedinstall`。`doca_ofed` 在线按 DOCA 版本拼源（如 3.2.2）：
 
 ```bash
-cd /opt/packages
-tar -xzf MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64.tgz
-cd MLNX_OFED_LINUX-24.10-3.2.5.0-ubuntu22.04-x86_64
-./mlnxofedinstall --all
+curl -fsSL https://linux.mellanox.com/public/repo/doca/GPG-KEY-Mellanox.pub \
+  | gpg --dearmor -o /etc/apt/trusted.gpg.d/GPG-KEY-Mellanox.gpg
+echo "deb [signed-by=/etc/apt/trusted.gpg.d/GPG-KEY-Mellanox.gpg] https://linux.mellanox.com/public/repo/doca/3.2.2/ubuntu22.04/x86_64/ ./" \
+  > /etc/apt/sources.list.d/doca.list
+apt-get update
+apt-get install -y doca-ofed
 ```
 
-验证：`ofed_info -s` 输出版本号。安装后**必须重启**再装驱动。
+`doca_ofed` 离线把该版本目录下的 deb 全部放进一个目录后 `apt-get install -y ./*.deb`。
 
----
+## 3. 驱动
 
-## 四、NVIDIA GPU 驱动
-
-### 查看源中可用的驱动版本
+在线，开源模块，版本锁定到 580.105.08。闭源把下面包名中的 `-open` 去掉。
 
 ```bash
-# 查看指定系列的全部版本（如 580 系列）
-apt-cache madison nvidia-driver-580
-
-# 只列版本号（便于对比）
-apt-cache madison nvidia-driver-580 | awk -F'|' '{gsub(/ /,"",$2); print $2}' | sort -u
-
-# 查看源中所有可用驱动系列
-apt-cache search '^nvidia-driver-[0-9]+' | awk '{print $1}' | sort -u
-
-# 查看已安装版本与候选升级版本
-apt-cache policy nvidia-driver-580
-```
-
-> 注：`madison` 结果来自本地 apt 缓存，新发布的版本需先 `apt-get update` 才能看到。
-
-### 在线安装（apt，自动处理依赖）
-
-```bash
-# 安装 580 系列（当前源中该系列最新版）
-apt-get install -y nvidia-driver-580
-
-# 或精确锁定 580.105.08（多个子包必须同时锁同一版本，否则依赖冲突）
 apt-get install -y \
-  nvidia-driver-580=580.105.08-0ubuntu1 nvidia-dkms-580=580.105.08-0ubuntu1 \
-  nvidia-kernel-common-580=580.105.08-0ubuntu1 libnvidia-compute-580=580.105.08-0ubuntu1
-```
-
-> 精确锁定的完整子包列表可执行 `apt-cache show nvidia-driver-580 | grep Depends` 按提示补齐；嫌繁琐可只装系列号（不锁 patch 版本）。
-
-安装后重启并验证：
-
-```bash
-reboot
-# 重启后
-nvidia-smi    # 输出显卡列表 + Driver Version: 580.105.08 即成功
-```
-
-### 离线安装（官方 .run 安装器）
-
-> 下载：https://download.nvidia.com/XFree86/Linux-x86_64/580.105.08/NVIDIA-Linux-x86_64-580.105.08.run
-> 驱动选择页（按显卡型号）：https://www.nvidia.com/drivers/
-
-```bash
-cd /opt/packages
-chmod +x NVIDIA-Linux-x86_64-580.105.08.run
-./NVIDIA-Linux-x86_64-580.105.08.run --silent --dkms
+  nvidia-driver-580-open=580.105.08-1ubuntu1 \
+  nvidia-dkms-580-open=580.105.08-1ubuntu1 \
+  nvidia-kernel-source-580-open=580.105.08-1ubuntu1
 reboot
 ```
 
-> 注意：run 安装器检测到 apt 安装的驱动会拒绝执行，需先 `apt-get remove -y 'nvidia-driver*' 'libnvidia-*'` 清理。卸载 run 驱动用 `/usr/bin/nvidia-uninstall`（不是 apt remove）。
+源里的修订号不一定是 `-1ubuntu1`，以 `apt-cache madison nvidia-driver-580-open` 为准。用户态子包（`libnvidia-*`、`nvidia-kernel-common` 等）不带 `-open`，有同版本就一起装。
 
----
-
-## 五、CUDA Toolkit
-
-### 在线安装（apt）
-
-查看源中可用的 CUDA Toolkit 版本：
+离线 `.run`：
 
 ```bash
-apt-cache search '^cuda-toolkit-' | awk '{print $1}' | sort -u
-apt-cache madison cuda-toolkit-13-0
+/opt/packages/NVIDIA-Linux-x86_64-580.105.08.run --silent --dkms \
+  --no-questions --no-cc-version-check --kernel-module-type=open
 ```
 
-安装：
+装完需要加载内核模块时再重启。`nvidia-smi` 在重启前失败是正常的。
+
+## 4. CUDA
+
+只装 Toolkit，不装 run 包里捆绑的驱动。
+
+在线：
 
 ```bash
-# 13.0 系列（主.次版本拼接包名）
 apt-get install -y cuda-toolkit-13-0
 ```
 
-### 离线安装（run 包，只装 Toolkit 不装捆绑驱动）
-
-> 下载：https://developer.download.nvidia.com/compute/cuda/13.0.2/local_installers/cuda_13.0.2_580.95.05_linux.run
-> 历史版本归档：https://developer.nvidia.com/cuda-toolkit-archive
+离线：
 
 ```bash
-cd /opt/packages
-chmod +x cuda_13.0.2_580.95.05_linux.run
-./cuda_13.0.2_580.95.05_linux.run --silent --toolkit
+sh /opt/packages/cuda_13.0.2_580.95.05_linux.run --silent --toolkit
 ```
 
-配置环境变量（两种方式安装后都执行）：
-
 ```bash
-cat > /etc/profile.d/cuda.sh <<'EOF'
+cat > /etc/profile.d/cuda.sh << 'EOF'
 export PATH=/usr/local/cuda/bin:$PATH
-export LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+export LD_LIBRARY_PATH=/usr/local/cuda/lib64:/usr/local/cuda/targets/x86_64-linux/lib:$LD_LIBRARY_PATH
 EOF
-source /etc/profile.d/cuda.sh
 ```
 
-验证：`nvcc -V` 输出 `release 13.0`。
+## 5. fabricmanager
 
-> 文件名中的 580.95.05 是 run 包捆绑的驱动副本，与实际驱动 580.105.08 不同属正常（`--toolkit` 不会安装它）；驱动 580 系列 ≥ CUDA 13 要求即可。
-
----
-
-## 六、nvidia-fabricmanager（多卡 NVLink 必装）
-
-版本必须与驱动**完全一致**。查看源中可用版本：
+包名是 `nvidia-fabricmanager`，不要用 Ubuntu multiverse 里带系列号的 server 包。版本与驱动一致。
 
 ```bash
-apt-cache madison nvidia-fabricmanager-580    # 版本须与已装驱动完全匹配
+apt-get install -y nvidia-fabricmanager=580.105.08-1ubuntu1
+systemctl enable --now nvidia-fabricmanager
 ```
 
-### 在线安装（apt）
+离线：`apt-get install -y /opt/packages/nvidia-fabricmanager_<版本>_amd64.deb`。
 
-```bash
-apt-get install -y nvidia-fabricmanager-580=580.105.08-1
-```
+## 6. NCCL
 
-### 离线安装（deb 包）
-
-> 下载：https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/nvidia-fabricmanager_580.105.08-1_amd64.deb
-> 仓库目录（其他版本）：https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/
-
-```bash
-dpkg -i /opt/packages/nvidia-fabricmanager_580.105.08-1_amd64.deb
-apt-get install -f    # 修复可能缺失的依赖
-```
-
-启动并验证（两种方式安装后都执行）：
-
-```bash
-systemctl enable nvidia-fabricmanager
-systemctl start nvidia-fabricmanager
-systemctl status nvidia-fabricmanager    # active (running)
-```
-
-> 无 GPU 或无 NVLink 交换机的机器上服务启动失败属正常，不影响其他组件。
-
----
-
-## 七、NCCL 库
-
-### 在线安装（apt，锁定版本与 CUDA 系列配套）
+与 OpenMPI、nccl-tests 分开装。
 
 ```bash
 apt-get install -y libnccl2=2.28.9-1+cuda13.0 libnccl-dev=2.28.9-1+cuda13.0
 ```
 
-> 版本需与 CUDA 系列配套（cuda13.0）。查看源中可用版本：
->
-> ```bash
-> apt-cache madison libnccl2 | grep cuda13.0    # 按 CUDA 系列过滤
-> ```
+离线：把 `libnccl2` 和 `libnccl-dev` 的 deb 放进一个目录，`apt-get install -y ./*.deb`。
 
-### 离线安装（deb 包）
+## 7. OpenMPI
 
-> 下载（两个都要）：
-> - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl2_2.28.9-1+cuda13.0_amd64.deb
-> - https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb
-> 下载页（按 CUDA 版本选）：https://developer.nvidia.com/nccl/nccl-download
+装到 `/usr/local/openmpi`。
 
 ```bash
-dpkg -i /opt/packages/libnccl2_2.28.9-1+cuda13.0_amd64.deb \
-       /opt/packages/libnccl-dev_2.28.9-1+cuda13.0_amd64.deb
-```
-
-验证：`dpkg -l | grep nccl` 显示两个包均为 `ii` 状态。
-
----
-
-## 八、OpenMPI（源码编译，安装到 /usr/local/openmpi）
-
-> 源码下载：https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz
-> 下载页：https://www.open-mpi.org/software/ompi/v4.1/
-
-```bash
-# 在线下载源码（或用离线包 /opt/packages/openmpi-4.1.7.tar.gz）
-cd /opt
-curl -fLO https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz
-
-# 解压、编译、安装
-tar -xzf openmpi-4.1.7.tar.gz
-cd openmpi-4.1.7
+curl -fL -o /opt/packages/openmpi-4.1.7.tar.gz \
+  https://download.open-mpi.org/release/open-mpi/v4.1/openmpi-4.1.7.tar.gz
+tar -C /opt/build -xzf /opt/packages/openmpi-4.1.7.tar.gz
+cd /opt/build/openmpi-4.1.7
 ./configure --prefix=/usr/local/openmpi
-make -j$(nproc)
+make -j"$(nproc)"
 make install
-```
-
-配置环境变量：
-
-```bash
-cat > /etc/profile.d/openmpi.sh <<'EOF'
+cat > /etc/profile.d/openmpi.sh << 'EOF'
 export PATH=/usr/local/openmpi/bin:$PATH
 export LD_LIBRARY_PATH=/usr/local/openmpi/lib:$LD_LIBRARY_PATH
 EOF
-source /etc/profile.d/openmpi.sh
 ```
 
-验证：`mpirun --version` 输出 `mpirun (Open MPI) 4.1.7`。
+## 8. nccl-tests
 
----
-
-## 九、nccl-tests（多机带宽测试）
-
-> 源码下载（2.17.6）：https://github.com/NVIDIA/nccl-tests/archive/refs/tags/v2.17.6.zip
-> Releases 页（其他版本）：https://github.com/NVIDIA/nccl-tests/releases
+依赖已安装的 OpenMPI 和 CUDA。装到 `/opt/build/nccl-tests`。
 
 ```bash
-# 在线下载源码（或用离线包 /opt/packages/nccl-tests-2.17.6.zip）
-cd /opt
-curl -fL https://github.com/NVIDIA/nccl-tests/archive/refs/tags/v2.17.6.zip -o nccl-tests-2.17.6.zip
-unzip nccl-tests-2.17.6.zip
-cd nccl-tests-2.17.6
-
-# 编译（多机模式用 MPI=1；单机测试可去掉 MPI=1 MPI_HOME）
+curl -fL -o /opt/packages/nccl-tests-src.zip \
+  https://ghproxy.net/https://github.com/NVIDIA/nccl-tests/archive/refs/heads/master.zip
+rm -rf /opt/build/nccl-tests /tmp/nccl-tests-extract
+mkdir -p /tmp/nccl-tests-extract
+unzip -q /opt/packages/nccl-tests-src.zip -d /tmp/nccl-tests-extract
+mv /tmp/nccl-tests-extract/* /opt/build/nccl-tests
+cd /opt/build/nccl-tests
 make -j MPI=1 MPI_HOME=/usr/local/openmpi CUDA_HOME=/usr/local/cuda
 ```
 
-验证：`ls build/all_reduce_perf` 存在即编译成功。
+## 9. NVSHMEM
+
+依赖驱动和 CUDA。引导包按系统拼 `ubuntu2204`。
 
 ```bash
-# 单机带宽测试
-./build/all_reduce_perf -b 8 -e 128M -f 2 -g <GPU数>
-
-# 多机测试（节点间需 SSH 免密互信）
-mpirun --prefix /usr/local/openmpi --allow-run-as-root -np 16 \
-  -H <node01>:8,<node02>:8 \
-  -x NCCL_SOCKET_IFNAME=bond0 -x LD_LIBRARY_PATH -x PATH \
-  /opt/nccl-tests-2.17.6/build/all_reduce_perf -b 128 -e 4G -f 2 -g 1
+curl -fL -o /opt/packages/nvshmem-local-repo.deb \
+  https://developer.download.nvidia.cn/compute/nvshmem/3.7.2/local_installers/nvshmem-local-repo-ubuntu2204-3.7.2_3.7.2-1_amd64.deb
+dpkg -i /opt/packages/nvshmem-local-repo.deb
+cp /var/nvshmem-local-repo-ubuntu2204-3.7.2/nvshmem-*-keyring.gpg /usr/share/keyrings/
+apt-get update
+apt-get install -y nvshmem-cuda-13
+cat > /etc/modprobe.d/nvidia.conf << 'EOF'
+options nvidia NVreg_EnableStreamMemOPs=1 NVreg_RegistryDwords="PeerMappingOverride=1;"
+EOF
+update-initramfs -u
 ```
 
-多机前置（按需）：
+然后重启。`cat /proc/driver/nvidia/params | grep EnableStreamMemOPs` 应为 `1`。
+
+## 10. nvidia_peermem
+
+仅 Ubuntu 22.04。依赖驱动已经加载。
 
 ```bash
-modprobe nvidia_peermem                                    # GPUDirect RDMA，开机持久化见 /etc/modules-load.d/nvidia-peermem.conf
-lspci -vvv | grep ACSCtl                                   # 输出含 SrcValid+ 则需关闭 ACS
+modprobe nvidia_peermem
+printf 'nvidia_peermem\n' > /etc/modules-load.d/nvidia-peermem.conf
 ```
 
----
+加载失败时，按已安装的包重装后再 `modprobe`：开源用 `nvidia-dkms-580-open=<当前版本>`，闭源用 `nvidia-dkms-580=<当前版本>`。不要把版本改成别的号。
 
-## 十、gpu-burn（GPU 压力烤机）
+## 11. PCI ACS
 
-> 源码下载（master）：https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip
-> 指定版本（如 v1.1）：https://github.com/wilicc/gpu-burn/archive/refs/tags/v1.1.zip
+装 `pciutils`。对所有支持 ACS 的设备写 `ACSCtl=0000`，并用 systemd 在开机、网络栈之前重做。检查 `lspci -vvv | grep ACSCtl` 不应出现 `SrcValid+`。
+
+## 12. IOMMU
+
+`off` 与 `pt` 二选一，`off` 必须写成带引号的字符串。按 CPU 厂商改 `/etc/default/grub` 的 `GRUB_CMDLINE_LINUX`，先去掉已有的 `intel_iommu`、`amd_iommu`、`iommu`，再 `update-grub`。重启后 `/proc/cmdline` 才变。
+
+- Intel `off`：`intel_iommu=off iommu=off`
+- AMD `off`：`amd_iommu=off iommu=off`
+- Intel `pt`：`intel_iommu=on iommu=pt`
+- AMD `pt`：`amd_iommu=on iommu=pt`
+
+VMware 客户机不要写 `iommu=off`。
+
+## 13. inotify
 
 ```bash
-# 在线下载源码（或用离线包 /opt/packages/gpu-burn-master.zip）
-cd /opt
-curl -fL https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip -o gpu-burn-master.zip
-unzip gpu-burn-master.zip
-cd gpu-burn-master
-make    # 编译警告可忽略，生成 gpu_burn 可执行文件即成功
+cat > /etc/sysctl.d/99-ai-inference-fsnotify.conf << 'EOF'
+fs.inotify.max_user_watches = 1048576
+fs.inotify.max_user_instances = 8192
+fs.inotify.max_queued_events = 65536
+EOF
+sysctl --system
 ```
 
-执行压测：
+## 14. PFC / ECN
+
+只用于 RoCE，InfiniBand 不要做。网口留空时用 mlx5 对应的以太网口。PFC 用 `mlnx_qos --trust dscp --pfc 0,0,0,1,0,0,0,0`。ECN 把对应优先级的 `roce_np/enable/<prio>` 和 `roce_rp/enable/<prio>` 写成 `1`。需要开机重做时写成 systemd 服务。
+
+## 15. GDRCopy
+
+CUDA 13.0 不能改用 DMA-BUF mmap，继续用 gdrdrv。没有 NVIDIA GPU（`lspci -n` 无 `10de:`）就不要加载。
 
 ```bash
-./gpu_burn 60        # 60 秒；硬件验收建议 1800 秒长烤
+apt-get install -y git dkms debhelper devscripts fakeroot dpkg-dev numactl
+git clone --branch v2.6 --depth 1 https://github.com/NVIDIA/gdrcopy.git /usr/local/src/gdrcopy
+cd /usr/local/src/gdrcopy/packages
+CUDA=/usr/local/cuda-13.0 ./build-deb-packages.sh
+dpkg -i gdrdrv-dkms_*_amd64*.deb libgdrapi_*_amd64*.deb gdrcopy-tests_*_amd64*.deb gdrcopy_*_amd64*.deb
+apt-get -f install -y
+modprobe gdrdrv
+printf 'gdrdrv\n' > /etc/modules-load.d/gdrdrv.conf
 ```
 
-结果判定：全部显卡输出 `GPU X: OK` 为正常；出现 error/failed 需排查硬件。
+## 16. gpu-burn
 
----
-
-## 十一、目录约定与验证
-
-| 路径 | 用途 |
-|---|---|
-| `/opt/packages` | 离线安装包存放 |
-| `/usr/local/cuda` | CUDA Toolkit 安装位置 |
-| `/usr/local/openmpi` | OpenMPI 安装位置 |
-| `/etc/profile.d/` | cuda.sh / openmpi.sh 环境变量 |
-
-全部装完后逐项验证：
+装到 `/opt/build/gpu-burn`。
 
 ```bash
-ibv_devices                                        # RDMA 栈
-nvidia-smi                                         # 驱动（Driver Version: 580.105.08）
-nvcc -V                                            # CUDA（release 13.0）
-systemctl status nvidia-fabricmanager              # fabricmanager
-dpkg -l | grep nccl                                # NCCL
-mpirun --version                                   # OpenMPI（4.1.7）
-ls /opt/nccl-tests-2.17.6/build/all_reduce_perf    # nccl-tests
-ls /opt/gpu-burn-master/gpu_burn                   # gpu-burn
+curl -fL -o /opt/packages/gpu-burn-src.zip \
+  https://ghproxy.net/https://github.com/wilicc/gpu-burn/archive/refs/heads/master.zip
+rm -rf /opt/build/gpu-burn
+mkdir -p /tmp/gpu-burn-extract
+unzip -q /opt/packages/gpu-burn-src.zip -d /tmp/gpu-burn-extract
+mv /tmp/gpu-burn-extract/* /opt/build/gpu-burn
+make -C /opt/build/gpu-burn
 ```
+
+## 17. DCGM
+
+```bash
+apt-get install -y datacenter-gpu-manager
+systemctl enable --now nvidia-dcgm
+```
+
+离线用本地 deb：`apt-get install -y /opt/packages/datacenter-gpu-manager_*.deb`。
+
+## 18. nvidia-container-toolkit
+
+会改 docker 运行时并重启 docker。K8s 控制节点慎用。
+
+```bash
+apt-get install -y nvidia-container-toolkit
+nvidia-ctk runtime configure --runtime=docker
+systemctl restart docker
+```
+
+有 containerd 时再执行 `nvidia-ctk runtime configure --runtime=containerd` 并重启 containerd。
+
+## 19. 锁定版本
+
+```bash
+apt-mark hold nvidia-driver-580-open nvidia-dkms-580-open nvidia-kernel-source-580-open \
+  cuda-toolkit-13-0 nvidia-fabricmanager libnccl2 libnccl-dev
+```
+
+装了 `doca-ofed` 或 `nvshmem-cuda-13` 时一并 hold。`.run` 安装的驱动和 CUDA 不要 hold。
