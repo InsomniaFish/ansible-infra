@@ -1,5 +1,10 @@
 # ansible-gpuenv
 
+[![Ansible](https://img.shields.io/badge/编排-Ansible-EE0000?style=flat&logo=ansible&logoColor=white)](https://www.ansible.com/)
+[![Ubuntu](https://img.shields.io/badge/系统-Ubuntu-E95420?style=flat&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![NVIDIA](https://img.shields.io/badge/GPU-NVIDIA-76B900?style=flat&logo=nvidia&logoColor=white)](https://www.nvidia.com/)
+[![CUDA](https://img.shields.io/badge/计算-CUDA_13.0-76B900?style=flat&logo=nvidia&logoColor=white)](https://developer.nvidia.com/cuda-toolkit)
+
 GPU 服务器环境自动化部署项目。基于 Ansible 实现在线安装、检测、卸载 NVIDIA GPU 全套运行环境，覆盖硬件验收、服务器巡检、批量部署场景。
 
 ## 使用流程

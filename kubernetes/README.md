@@ -1,5 +1,11 @@
 # ansible-kubernetes
 
+[![Ansible](https://img.shields.io/badge/编排-Ansible-EE0000?style=flat&logo=ansible&logoColor=white)](https://www.ansible.com/)
+[![Ubuntu](https://img.shields.io/badge/系统-Ubuntu-E95420?style=flat&logo=ubuntu&logoColor=white)](https://ubuntu.com/)
+[![Kubernetes](https://img.shields.io/badge/集群-Kubernetes_1.34-326CE5?style=flat&logo=kubernetes&logoColor=white)](https://kubernetes.io/)
+[![Docker](https://img.shields.io/badge/容器-Docker-2496ED?style=flat&logo=docker&logoColor=white)](https://www.docker.com/)
+[![Prometheus](https://img.shields.io/badge/监控-Prometheus-E6522C?style=flat&logo=prometheus&logoColor=white)](https://prometheus.io/)
+
 基于 Ansible 的 Kubernetes 集群自动化部署项目，面向 Ubuntu 环境，支持一键完成节点初始化、控制面搭建、Worker 加入及可选组件安装。
 
 ## 项目介绍
