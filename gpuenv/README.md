@@ -279,7 +279,7 @@ ansible-playbook -i inventory.ini uninstall.yml -e gpuenv_uninstall_components=n
 - 核心：`driver` `cuda` `fabricmanager` `gpu_burn`
 - 可选：`nccl` `openmpi` `nccl_tests` `dcgm` `container_toolkit` `ofed` `peermem` `pci_acs` `nvshmem`
 
-检测报告涵盖：gcc / cuda-keyring / 驱动 / CUDA / fabricmanager / dkms 模块 / nvidia-smi / nvcc / 环境变量 / gpu-burn / NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED / GPUDirect RDMA（DMA-BUF） / PCI ACS。
+检测项：OFED、NVIDIA 驱动、CUDA、fabricmanager、NCCL、OpenMPI、nccl-tests、NVSHMEM、GPUDirect RDMA、PCI ACS、IOMMU、inotify、PFC、ECN、GDRCopy、gpu-burn、DCGM、nvidia-container-toolkit。Ubuntu 22.04 的 GPUDirect RDMA 检查 `nvidia_peermem` 已加载并持久化；24.04 及以上检查 DMA-BUF，且不得残留 `nvidia_peermem`。最后列出已安装和未安装。
 
 ## 多机通信配置（IB / RoCE 场景）
 
