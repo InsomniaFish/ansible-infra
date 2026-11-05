@@ -9,6 +9,25 @@
 
 用 Ansible 管理同一批 Ubuntu 机器上的 GPU 环境和 Kubernetes 集群。主机清单是 `inventory/inventory.ini`。
 
+## 拉取与切换分支
+
+Ubuntu 22.04 用 `ubuntu22.04`，Ubuntu 24.04 用 `ubuntu24.04`。`main` 与 `ubuntu22.04` 相同。不要混用。
+
+```bash
+git clone https://github.com/InsomniaFish/ansible-infra.git
+cd ansible-infra
+git checkout ubuntu22.04
+git pull
+```
+
+改用 24.04：
+
+```bash
+git fetch
+git checkout ubuntu24.04
+git pull
+```
+
 ## gpuenv
 
 安装、检测和卸载 NVIDIA GPU 运行环境，包括驱动、CUDA、OFED、NCCL 等。按组件开关选择装什么。
