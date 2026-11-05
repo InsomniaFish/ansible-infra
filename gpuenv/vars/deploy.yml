@@ -2,7 +2,7 @@
 #===============================================================================
 # 部署配置清单（Ubuntu 24.04）
 #
-# 默认生效：全量在线。改用全量离线时，先把全量在线整段注释掉，再去掉全量离线每行行首的 #。
+# 默认生效：全量在线。改用全量离线时，先把全量在线整段注释掉，再去掉全量离线里变量行行首的 #。
 # 两段不要同时生效。未写出的项用默认值（默认不安装）。
 # 优先级：role defaults < vars/gpuenv_repos.yml < 本文件 < 命令行 -e
 #
@@ -23,44 +23,74 @@
 # 全量在线安装（当前生效）
 # NCCL 开关同时安装 OpenMPI 和 nccl-tests。
 #===============================================================================
+# 是否安装 OFED。必须在 GPU 驱动之前。
 gpuenv_install_ofed: true
+# mlnx_ofed 或 doca_ofed。两者都提供 RDMA，版本号不能混用。
 gpuenv_ofed_flavor: doca_ofed
+# doca_ofed 填 DOCA 发行版本。mlnx_ofed 填 OFED 版本号，如 24.10-3.2.5.0。
 gpuenv_ofed_version: "3.2.2"
+# online 在线安装；package 用本地包。
 gpuenv_ofed_install_mode: online
 
+# 是否安装 NVIDIA 驱动。
 gpuenv_install_driver: true
+# 驱动版本。CUDA 13.0 需要 580 系列。
 gpuenv_driver_version: "580.178.04"
+# online 走 apt；package 用 .run。
 gpuenv_driver_install_mode: online
+# 装完是否重启以加载内核模块。
 gpuenv_reboot_after_driver: true
 
-gpuenv_install_peermem: true                 # DMA-BUF，不加载 nvidia_peermem
+# 24.04 走内核 DMA-BUF，不加载 nvidia_peermem。多机 RDMA 建议打开。
+gpuenv_install_peermem: true
+# 关闭 PCI ACS，开机由 systemd 重做。
 gpuenv_install_pci_acs: true
 
+# 是否安装 CUDA Toolkit。
 gpuenv_install_cuda: true
+# CUDA 版本。
 gpuenv_cuda_version: "13.0.2"
+# online 走 apt；package 用 .run。
 gpuenv_cuda_install_mode: online
 
+# 是否安装 fabricmanager。NVLink 多卡需要，版本与驱动一致。
 gpuenv_install_fabricmanager: true
+# online 走 apt；package 用 deb。版本留空则跟随驱动。
 gpuenv_fm_install_mode: online
 
+# 是否编译 gpu-burn。
 gpuenv_install_gpu_burn: true
+# online 下载源码；package 用本地 zip。
 gpuenv_gpu_burn_install_mode: online
 
+# 是否安装 NCCL。打开后同时安装 OpenMPI 和 nccl-tests。
 gpuenv_install_nccl: true
+# NCCL 版本，须与 CUDA 配套。
 gpuenv_nccl_version: "2.28.9"
+# online 走 apt；package 用存放 libnccl2 和 libnccl-dev 的目录。
 gpuenv_nccl_install_mode: online
+# OpenMPI 版本。由 NCCL 开关一并安装。
 gpuenv_openmpi_version: "4.1.7"
+# online 下载源码编译；package 用本地 tar.gz。
 gpuenv_openmpi_install_mode: online
+# online 下载 nccl-tests 源码；package 用本地 zip。
 gpuenv_nccl_tests_install_mode: online
 
+# 是否安装 DCGM。没有 GPU 时服务可以不运行。
 gpuenv_install_dcgm: true
+# online 走 apt；package 用 deb。
 gpuenv_dcgm_install_mode: online
 
-gpuenv_install_container_toolkit: true       # 会重启 docker
+# 是否安装 nvidia-container-toolkit。会重启 docker。
+gpuenv_install_container_toolkit: true
+# online 走 apt；package 用 deb。
 gpuenv_container_toolkit_install_mode: online
 
+# 是否安装 NVSHMEM。参数写入 nvidia.conf，需再重启一次才生效。
 gpuenv_install_nvshmem: true
+# NVSHMEM 版本。在线按此拼接引导 deb。
 gpuenv_nvshmem_version: "3.7.2"
+# online 自动配官方源；package 用 ubuntu2404 的 local-repo deb。
 gpuenv_nvshmem_install_mode: online
 
 
@@ -68,46 +98,89 @@ gpuenv_nvshmem_install_mode: online
 # 全量离线安装（整段注释，不生效）
 # 包放在 /opt/packages。DOCA 目录从 .../doca/3.2.2/ubuntu24.04/x86_64/ 下全量下载。
 #===============================================================================
+# 是否安装 OFED。必须在 GPU 驱动之前。
 # gpuenv_install_ofed: true
+# mlnx_ofed 或 doca_ofed。这里用 doca_ofed 的本地 deb 目录。
 # gpuenv_ofed_flavor: doca_ofed
+# doca_ofed 填 DOCA 发行版本。
 # gpuenv_ofed_version: "3.2.2"
+# package 表示使用本地包。
 # gpuenv_ofed_install_mode: package
+# ubuntu24.04 的 doca-ofed 及全部依赖 deb 所在目录。
 # gpuenv_ofed_package: /opt/packages/doca-debs
+# 是否安装 NVIDIA 驱动。
 # gpuenv_install_driver: true
+# 驱动版本。须与 .run 文件名中的版本一致。
 # gpuenv_driver_version: "580.178.04"
+# package 使用 .run。
 # gpuenv_driver_install_mode: package
+# 驱动 .run 的本地路径。
 # gpuenv_driver_package: /opt/packages/NVIDIA-Linux-x86_64-580.178.04.run
+# 装完是否重启以加载内核模块。
 # gpuenv_reboot_after_driver: true
+# 24.04 走内核 DMA-BUF，不加载 nvidia_peermem。
 # gpuenv_install_peermem: true
+# 关闭 PCI ACS，开机由 systemd 重做。
 # gpuenv_install_pci_acs: true
+# 是否安装 CUDA Toolkit。
 # gpuenv_install_cuda: true
+# CUDA 版本。须与 .run 文件名中的版本一致。
 # gpuenv_cuda_version: "13.0.2"
+# package 使用 .run。
 # gpuenv_cuda_install_mode: package
+# CUDA .run 的本地路径。
 # gpuenv_cuda_package: /opt/packages/cuda_13.0.2_580.95.05_linux.run
+# 是否安装 fabricmanager。版本须与驱动一致。
 # gpuenv_install_fabricmanager: true
+# package 使用 deb。
 # gpuenv_fm_install_mode: package
+# fabricmanager deb 的本地路径。
 # gpuenv_fm_package: /opt/packages/nvidia-fabricmanager.deb
+# 是否编译 gpu-burn。
 # gpuenv_install_gpu_burn: true
+# package 使用本地源码 zip。
 # gpuenv_gpu_burn_install_mode: package
+# gpu-burn 源码 zip 的本地路径。
 # gpuenv_gpu_burn_package: /opt/packages/gpu-burn-src.zip
+# 是否安装 NCCL。打开后同时安装 OpenMPI 和 nccl-tests。
 # gpuenv_install_nccl: true
+# NCCL 版本，须与目录中的 deb 一致。
 # gpuenv_nccl_version: "2.28.9"
+# package 使用本地 deb 目录。
 # gpuenv_nccl_install_mode: package
+# 存放 libnccl2 和 libnccl-dev 的目录。
 # gpuenv_nccl_package: /opt/packages/nccl-debs
+# OpenMPI 版本。由 NCCL 开关一并安装。
 # gpuenv_openmpi_version: "4.1.7"
+# package 使用本地源码包。
 # gpuenv_openmpi_install_mode: package
+# OpenMPI 源码 tar.gz 的本地路径。
 # gpuenv_openmpi_package: /opt/packages/openmpi-4.1.7.tar.gz
+# package 使用 nccl-tests 本地源码 zip。
 # gpuenv_nccl_tests_install_mode: package
+# nccl-tests 源码 zip 的本地路径。
 # gpuenv_nccl_tests_package: /opt/packages/nccl-tests-src.zip
+# 是否安装 DCGM。
 # gpuenv_install_dcgm: true
+# package 使用 deb。
 # gpuenv_dcgm_install_mode: package
+# DCGM deb 的本地路径。
 # gpuenv_dcgm_package: /opt/packages/datacenter-gpu-manager.deb
+# 是否安装 nvidia-container-toolkit。会重启 docker。
 # gpuenv_install_container_toolkit: true
+# package 使用 deb。
 # gpuenv_container_toolkit_install_mode: package
+# nvidia-container-toolkit deb 的本地路径。
 # gpuenv_container_toolkit_package: /opt/packages/nvidia-container-toolkit.deb
+# 是否安装 NVSHMEM。
 # gpuenv_install_nvshmem: true
+# NVSHMEM 版本。须与 deb 文件名一致。
 # gpuenv_nvshmem_version: "3.7.2"
+# package 使用本系统的 local-repo deb。
 # gpuenv_nvshmem_install_mode: package
+# ubuntu2404 的 NVSHMEM 引导 deb。不要换成 ubuntu2204。
 # gpuenv_nvshmem_package: /opt/packages/nvshmem-local-repo-ubuntu2404-3.7.2_3.7.2-1_amd64.deb
+# true 时忽略已安装检测并重装。
 # gpuenv_force: false
+# 供 uninstall.yml 使用。core、all，或逗号分隔的组件名。
 # gpuenv_uninstall_components: core
