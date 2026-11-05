@@ -1,27 +1,14 @@
+---
 #===============================================================================
-# 部署配置清单
+# 部署配置清单（Ubuntu 22.04）
 #
-# 变量按 playbook 安装顺序排列。未写的项用默认值（默认不安装）。
+# 默认生效：全量在线。改用全量离线时，先把全量在线整段注释掉，再去掉全量离线每行行首的 #。
+# 两段不要同时生效。未写出的项用默认值（默认不安装）。
 # 优先级：role defaults < vars/gpuenv_repos.yml < 本文件 < 命令行 -e
 #
 # 安装顺序：
-#   1  OFED
-#   2  NVIDIA 驱动（含内核模块类型；可在装完后重启）
-#   3  CUDA
-#   4  fabricmanager（版本须与驱动一致）
-#   5  NCCL
-#   6  OpenMPI
-#   7  nccl-tests
-#   8  NVSHMEM（写入 nvidia.conf，需再重启一次才生效）
-#   9  nvidia_peermem（22.04 加载并开机持久化；24.04 的同名开关走 DMA-BUF）
-#  10  关闭 PCI ACS
-#  11  IOMMU（off 与 pt 二选一）
-#  12  inotify
-#  13  RoCE PFC / ECN（InfiniBand 不需要）
-#  14  GDRCopy（依赖 CUDA）
-#  15  gpu-burn
-#  16  DCGM
-#  17  nvidia-container-toolkit
+#   OFED → 驱动 → CUDA → fabricmanager → NCCL → OpenMPI → nccl-tests → NVSHMEM
+#   → nvidia_peermem → PCI ACS → inotify → GDRCopy → gpu-burn → DCGM → container-toolkit
 #
 # 操作系统差异与选择：
 #   本清单只给 Ubuntu 22.04（22.04 ≤ 版本 < 22.10）。24.04 用 ubuntu24.04 分支的 deploy.yml，不要混用。
@@ -33,125 +20,120 @@
 #     MLNX_OFED 用 *-ubuntu22.04-x86_64.tgz
 #     DOCA 用 .../doca/<版本>/ubuntu22.04/x86_64/
 #     NVSHMEM 用 nvshmem-local-repo-ubuntu2204-*.deb
+#   IOMMU、PFC、ECN 不放进默认全量。VMware 上 iommu=off 会让网卡和 USB 起不来；InfiniBand 不要开 PFC/ECN。
 #===============================================================================
 
 
 #===============================================================================
-# 当前部署：多机训练（在线）
+# 全量在线安装（当前生效）
 #===============================================================================
-
-# 1. OFED（必须在 GPU 驱动之前）
 gpuenv_install_ofed: true
-gpuenv_ofed_flavor: doca_ofed              # mlnx_ofed 或 doca_ofed
-gpuenv_ofed_version: "3.2.2"               # doca_ofed 为 DOCA 发行版本
-gpuenv_ofed_install_mode: online           # online 或 package
-# gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu22.04-x86_64.tgz
+gpuenv_ofed_flavor: doca_ofed
+gpuenv_ofed_version: "3.2.2"
+gpuenv_ofed_install_mode: online
 
-# 2. NVIDIA 驱动
 gpuenv_install_driver: true
 gpuenv_driver_version: "580.178.04"
-gpuenv_driver_install_mode: online         # online=apt / package=离线 .run
-gpuenv_driver_kernel: open                 # open=开源（默认）/ proprietary=闭源
-gpuenv_reboot_after_driver: false          # 装完重启以加载内核模块
+gpuenv_driver_install_mode: online
+gpuenv_driver_kernel: open
+gpuenv_reboot_after_driver: true
 
-# 3. CUDA
 gpuenv_install_cuda: true
+gpuenv_cuda_version: "13.0.2"
+gpuenv_cuda_install_mode: online
 
-# 4. fabricmanager（版本留空则与驱动一致）
 gpuenv_install_fabricmanager: true
+gpuenv_fm_install_mode: online
 
-# 5. NCCL
 gpuenv_install_nccl: true
+gpuenv_nccl_version: "2.28.9"
+gpuenv_nccl_install_mode: online
 
-# 6. OpenMPI
 gpuenv_install_openmpi: true
+gpuenv_openmpi_version: "4.1.7"
+gpuenv_openmpi_install_mode: online
 
-# 7. nccl-tests
 gpuenv_install_nccl_tests: true
+gpuenv_nccl_tests_install_mode: online
 
-# 8. NVSHMEM（写入 /etc/modprobe.d/nvidia.conf，需再重启一次）
 gpuenv_install_nvshmem: true
+gpuenv_nvshmem_version: "3.7.2"
+gpuenv_nvshmem_install_mode: online
 
-# 9. nvidia_peermem（22.04：依赖驱动，加载并写入开机配置）
-gpuenv_install_peermem: true
-
-# 10. 关闭 PCI ACS（开机由 systemd 重做）
+gpuenv_install_peermem: true                 # 加载 nvidia_peermem 并写入开机配置
 gpuenv_install_pci_acs: true
-
-# 11. IOMMU（off 与 pt 只能二选一，重启后 /proc/cmdline 才变）
-# VMware 客户机不要开：iommu=off 会让 e1000 / USB DMA 失败，虚拟机起不来
-# gpuenv_install_iommu: true
-# gpuenv_iommu_mode: "off"
-
-# 12. inotify 上限
 gpuenv_install_inotify: true
 
-# 13. RoCE PFC / ECN（默认关；InfiniBand 不要开）
-# gpuenv_install_pfc: true
-# gpuenv_pfc_priorities: "0,0,0,1,0,0,0,0" # 8 个优先级，此例只开优先级 3
-# gpuenv_pfc_trust: dscp                   # dscp 或 pcp
-# gpuenv_install_ecn: true
-# gpuenv_ecn_priority: 3                   # 与 PFC 打开的优先级一致
-# gpuenv_roce_ifaces: []                   # 空列表则自动发现 mlx5 网口
-
-# 14. GDRCopy v2.6（依赖 CUDA；加载并持久化 gdrdrv）
 gpuenv_install_gdrcopy: true
 
-# 15. gpu-burn
 gpuenv_install_gpu_burn: true
 gpuenv_gpu_burn_install_mode: online
 
-# 16. DCGM
-# gpuenv_install_dcgm: true
-# gpuenv_dcgm_install_mode: online
+gpuenv_install_dcgm: true
+gpuenv_dcgm_install_mode: online
 
-# 17. nvidia-container-toolkit（会重启 docker）
-# gpuenv_install_container_toolkit: true
-# gpuenv_container_toolkit_install_mode: online
+gpuenv_install_container_toolkit: true       # 会重启 docker
+gpuenv_container_toolkit_install_mode: online
 
 
 #===============================================================================
-# 参考：单机基础环境（整段注释，不生效）
-#===============================================================================
-# gpuenv_install_driver: true
-# gpuenv_driver_version: "580.178.04"
-# gpuenv_driver_install_mode: online
-# gpuenv_driver_kernel: open
-# gpuenv_reboot_after_driver: true
-# gpuenv_install_cuda: true
-# gpuenv_cuda_version: "13.0.2"
-# gpuenv_cuda_install_mode: online
-
-
-#===============================================================================
-# 参考：全离线 package（整段注释，不生效）
+# 全量离线安装（整段注释，不生效）
+# 包放在 /opt/packages。DOCA 目录从 .../doca/3.2.2/ubuntu22.04/x86_64/ 下全量下载。
+# GDRCopy 没有离线包，打开后仍从 git 拉取。
 #===============================================================================
 # gpuenv_install_ofed: true
-# gpuenv_ofed_flavor: mlnx_ofed
-# gpuenv_ofed_version: "24.10-1.1.4.0"
+# gpuenv_ofed_flavor: doca_ofed
+# gpuenv_ofed_version: "3.2.2"
 # gpuenv_ofed_install_mode: package
-# gpuenv_ofed_package: /opt/packages/MLNX_OFED_LINUX-24.10-1.1.4.0-ubuntu22.04-x86_64.tgz
+# gpuenv_ofed_package: /opt/packages/doca-debs
 # gpuenv_install_driver: true
+# gpuenv_driver_version: "580.178.04"
 # gpuenv_driver_install_mode: package
 # gpuenv_driver_kernel: open
 # gpuenv_driver_package: /opt/packages/NVIDIA-Linux-x86_64-580.178.04.run
+# gpuenv_reboot_after_driver: true
 # gpuenv_install_cuda: true
+# gpuenv_cuda_version: "13.0.2"
 # gpuenv_cuda_install_mode: package
 # gpuenv_cuda_package: /opt/packages/cuda_13.0.2_580.95.05_linux.run
+# gpuenv_install_fabricmanager: true
+# gpuenv_fm_install_mode: package
+# gpuenv_fm_package: /opt/packages/nvidia-fabricmanager.deb
 # gpuenv_install_nccl: true
+# gpuenv_nccl_version: "2.28.9"
 # gpuenv_nccl_install_mode: package
 # gpuenv_nccl_package: /opt/packages/nccl-debs
+# gpuenv_install_openmpi: true
+# gpuenv_openmpi_version: "4.1.7"
 # gpuenv_openmpi_install_mode: package
-# gpuenv_openmpi_package: /opt/packages/openmpi-4.1.8.tar.gz
+# gpuenv_openmpi_package: /opt/packages/openmpi-4.1.7.tar.gz
+# gpuenv_install_nccl_tests: true
 # gpuenv_nccl_tests_install_mode: package
 # gpuenv_nccl_tests_package: /opt/packages/nccl-tests-src.zip
 # gpuenv_install_nvshmem: true
+# gpuenv_nvshmem_version: "3.7.2"
 # gpuenv_nvshmem_install_mode: package
 # gpuenv_nvshmem_package: /opt/packages/nvshmem-local-repo-ubuntu2204-3.7.2_3.7.2-1_amd64.deb
-
-
-#===============================================================================
-# 行为开关（不写则用默认值）
-#===============================================================================
-# gpuenv_force: false                      # 忽略已安装检测，强制重装
-# gpuenv_uninstall_components: core        # core / all / 逗号分隔列表（如 nccl,dcgm）
+# gpuenv_install_peermem: true
+# gpuenv_install_pci_acs: true
+# gpuenv_install_inotify: true
+# gpuenv_install_gdrcopy: true
+# gpuenv_install_gpu_burn: true
+# gpuenv_gpu_burn_install_mode: package
+# gpuenv_gpu_burn_package: /opt/packages/gpu-burn-src.zip
+# gpuenv_install_dcgm: true
+# gpuenv_dcgm_install_mode: package
+# gpuenv_dcgm_package: /opt/packages/datacenter-gpu-manager.deb
+# gpuenv_install_container_toolkit: true
+# gpuenv_container_toolkit_install_mode: package
+# gpuenv_container_toolkit_package: /opt/packages/nvidia-container-toolkit.deb
+# gpuenv_force: false
+# gpuenv_uninstall_components: core
+# gpuenv_install_iommu: true
+# gpuenv_iommu_mode: "off"
+# gpuenv_install_pfc: true
+# gpuenv_pfc_priorities: "0,0,0,1,0,0,0,0"
+# gpuenv_pfc_trust: dscp
+# gpuenv_install_ecn: true
+# gpuenv_ecn_priority: 3
+# gpuenv_roce_ifaces: []
