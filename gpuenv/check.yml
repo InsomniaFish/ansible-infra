@@ -1,11 +1,13 @@
 ---
 #===============================================================================
-# GPU 环境组件检测 playbook（只读，不做任何修改）
+# GPU 环境检查 playbook（只读，不做任何修改）
+# 检查可安装组件和调优项是否生效，最后列出已安装与未安装。
+# Ubuntu 22.04 检查 nvidia_peermem；24.04 及以上检查 DMA-BUF，且不应残留 nvidia_peermem。
 # 用法：
 #   ansible-playbook -i inventory.ini check.yml                 # 检测所有节点
 #   ansible-playbook -i inventory.ini check.yml --limit node01 # 仅检测指定节点
 #===============================================================================
-- name: 检测 GPU 环境组件安装状况
+- name: 检查 GPU 环境安装与调优是否生效
   hosts: gpu_nodes
   become: yes
   gather_facts: false

@@ -1,239 +1,275 @@
 ---
-#===============================================================================
-# GPUENV_CHECK role：检测 GPU 环境组件安装状况（只读，不做任何修改）
-# 检测项：编译依赖 / cuda-keyring / 驱动 / CUDA / fabricmanager / gpu-burn /
-#         NCCL / OpenMPI / nccl-tests / DCGM / container-toolkit / OFED(RDMA) /
-#         nvidia_peermem / PCI ACS
-#===============================================================================
+# 只读检查可安装组件和调优项是否生效，最后列出已安装与未安装。
 
-- name: 收集已安装的 nvidia / cuda 相关软件包
-  shell: dpkg -l | grep -E "^ii\s+(nvidia-|libnvidia-|cuda)" | awk '{print $2, $3}' || true
-  register: check_pkgs
-  changed_when: false
-
-- name: 检查 gcc 是否可用
-  command: gcc --version
-  register: check_gcc
-  changed_when: false
-  failed_when: false
-
-- name: 检查 cuda-keyring 安装状态
-  shell: dpkg-query -W -f='${db:Status-Abbrev} ${Version}' cuda-keyring 2>/dev/null || echo "未安装"
-  register: check_keyring
-  changed_when: false
-
-- name: 检查 nvidia-smi 输出
-  command: nvidia-smi
-  register: check_nvidia_smi
-  changed_when: false
-  failed_when: false
-
-- name: 检查 nvcc 版本
-  command: /usr/local/cuda/bin/nvcc -V
-  register: check_nvcc
-  changed_when: false
-  failed_when: false
-
-- name: 检查 fabricmanager 安装版本
-  shell: dpkg-query -W -f='${Version}' nvidia-fabricmanager 2>/dev/null || echo "未安装"
-  register: check_fm_ver
-  changed_when: false
-
-- name: 检查 fabricmanager 服务状态
-  command: systemctl is-active nvidia-fabricmanager
-  register: check_fm_active
-  changed_when: false
-  failed_when: false
-
-- name: 检查 fabricmanager 开机自启状态
-  command: systemctl is-enabled nvidia-fabricmanager
-  register: check_fm_enabled
-  changed_when: false
-  failed_when: false
-
-- name: 检查 gpu_burn 可执行文件
-  stat:
-    path: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
-  register: check_gpu_burn
-
-- name: 检查 CUDA 环境变量配置
-  stat:
-    path: "{{ gpuenv_cuda_profile }}"
-  register: check_cuda_profile
-
-- name: 检查 dkms 内核模块构建状态
-  shell: dkms status 2>/dev/null | grep -i nvidia || echo "无 nvidia dkms 模块"
-  register: check_dkms
-  changed_when: false
-  failed_when: false
-
-# --- NCCL / OpenMPI / nccl-tests ---
-- name: 检查 NCCL 库版本
-  shell: dpkg-query -W -f='${Version}' libnccl2 2>/dev/null || echo "未安装"
-  register: check_nccl
-  changed_when: false
-
-- name: 检查 OpenMPI 安装（源码编译）
-  stat:
-    path: "{{ gpuenv_openmpi_dir }}/bin/mpirun"
-  register: check_openmpi
-
-- name: 检查 OpenMPI 版本
-  command: "{{ gpuenv_openmpi_dir }}/bin/mpirun --version"
-  register: check_openmpi_ver
-  changed_when: false
-  failed_when: false
-  when: check_openmpi.stat.exists
-
-- name: 检查 nccl-tests 编译产物
-  stat:
-    path: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
-  register: check_nccl_tests
-
-# --- DCGM / container-toolkit ---
-- name: 检查 DCGM 安装状态
-  shell: dpkg-query -W -f='${Version}' datacenter-gpu-manager 2>/dev/null || echo "未安装"
-  register: check_dcgm
-  changed_when: false
-
-- name: 检查 DCGM 服务状态
-  command: systemctl is-active nvidia-dcgm
-  register: check_dcgm_active
-  changed_when: false
-  failed_when: false
-
-- name: 检查 nvidia-container-toolkit 安装状态
-  shell: dpkg-query -W -f='${Version}' nvidia-container-toolkit 2>/dev/null || echo "未安装"
-  register: check_container_toolkit
-  changed_when: false
-
-# --- OFED / RDMA ---
-- name: 检查 OFED 安装状态（ofed_info）
+- name: 检查安装项与调优项是否生效
+  environment:
+    CHECK_OPENMPI: "{{ gpuenv_openmpi_dir }}/bin/mpirun"
+    CHECK_NCCL_TESTS: "{{ gpuenv_nccl_tests_dir }}/build/all_reduce_perf"
+    CHECK_GPU_BURN: "{{ gpuenv_gpu_burn_dir }}/gpu_burn"
   shell: |
-    if command -v ofed_info >/dev/null 2>&1; then
-      ofed_info -s 2>/dev/null | head -n 1
-    else
-      echo "未安装（可能为 native RDMA 栈）"
-    fi
-  register: check_ofed
+    python3 - << 'PY'
+    import json, os, subprocess
+
+    def run(cmd):
+        p = subprocess.run(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        return p.returncode, (p.stdout or "").strip()
+
+    def dpkg_map():
+        _, out = run("dpkg-query -W -f='${db:Status-Abbrev}|${Package}|${Version}\\n' 2>/dev/null || true")
+        found = {}
+        for line in out.splitlines():
+            parts = line.split("|", 2)
+            if len(parts) != 3:
+                continue
+            st, name, ver = parts
+            if len(st) >= 2 and st[1] == "i":
+                found[name] = ver
+        return found
+
+    def prefixed(pkgs, prefix):
+        return ["%s %s" % (n, v) for n, v in pkgs.items() if n.startswith(prefix)]
+
+    def grub_tokens():
+        path = "/etc/default/grub"
+        if not os.path.isfile(path):
+            return []
+        for line in open(path, encoding="utf-8", errors="replace"):
+            if line.startswith("GRUB_CMDLINE_LINUX="):
+                val = line.split("=", 1)[1].strip().strip("'").strip('"')
+                return val.split()
+        return []
+
+    def sysctl(key):
+        _, out = run("sysctl -n %s" % key)
+        return out
+
+    pkgs = dpkg_map()
+    items = []
+
+    doca = pkgs.get("doca-ofed", "")
+    _, ofed = run("ofed_info -s 2>/dev/null | head -n 1")
+    rdma = pkgs.get("rdma-core", "")
+    if doca:
+        items.append(("ofed", "OFED", True, "doca-ofed %s" % doca))
+    elif ofed:
+        items.append(("ofed", "OFED", True, ofed))
+    elif rdma:
+        items.append(("ofed", "OFED", True, "rdma-core %s" % rdma))
+    else:
+        items.append(("ofed", "OFED", False, ""))
+
+    drv = prefixed(pkgs, "nvidia-driver-") + prefixed(pkgs, "nvidia-dkms-")
+    smi_rc, _ = run("nvidia-smi >/dev/null 2>&1")
+    if drv or smi_rc == 0:
+        detail = drv[0] if drv else "nvidia-smi"
+        detail += "，nvidia-smi 正常" if smi_rc == 0 else "，内核模块未加载"
+        items.append(("driver", "NVIDIA 驱动", True, detail))
+    else:
+        items.append(("driver", "NVIDIA 驱动", False, ""))
+
+    nvcc_rc, nvcc = run("/usr/local/cuda/bin/nvcc -V")
+    if nvcc_rc == 0:
+        lines = [x for x in nvcc.splitlines() if x.strip()]
+        items.append(("cuda", "CUDA", True, lines[-1] if lines else ""))
+    else:
+        items.append(("cuda", "CUDA", False, ""))
+
+    fm = pkgs.get("nvidia-fabricmanager", "")
+    if fm:
+        _, fm_active = run("systemctl is-active nvidia-fabricmanager 2>/dev/null || true")
+        items.append(("fabricmanager", "fabricmanager", True, "%s，服务 %s" % (fm, fm_active or "未知")))
+    else:
+        items.append(("fabricmanager", "fabricmanager", False, ""))
+
+    nccl = pkgs.get("libnccl2", "")
+    items.append(("nccl", "NCCL", bool(nccl), nccl))
+
+    mpirun = os.environ["CHECK_OPENMPI"]
+    mpi_rc, mpi_ver = run("%s --version" % mpirun) if os.path.isfile(mpirun) else (1, "")
+    if mpi_rc == 0:
+        items.append(("openmpi", "OpenMPI", True, mpi_ver.splitlines()[0]))
+    else:
+        items.append(("openmpi", "OpenMPI", False, ""))
+
+    nccl_tests = os.environ["CHECK_NCCL_TESTS"]
+    items.append(("nccl_tests", "nccl-tests", os.path.isfile(nccl_tests), nccl_tests if os.path.isfile(nccl_tests) else ""))
+
+    nvshmem = prefixed(pkgs, "nvshmem-cuda-")
+    conf_path = "/etc/modprobe.d/nvidia.conf"
+    conf_ok = False
+    if os.path.isfile(conf_path):
+        conf_ok = "NVreg_EnableStreamMemOPs=1" in open(conf_path, encoding="utf-8", errors="replace").read()
+    if nvshmem and conf_ok:
+        params_rc, _ = run("grep -qE '^EnableStreamMemOPs: 1' /proc/driver/nvidia/params")
+        detail = nvshmem[0]
+        if params_rc != 0:
+            detail += "，驱动参数重启后生效"
+        items.append(("nvshmem", "NVSHMEM", True, detail))
+    else:
+        items.append(("nvshmem", "NVSHMEM", False, ""))
+
+    os_ver = ""
+    if os.path.isfile("/etc/os-release"):
+        for line in open("/etc/os-release", encoding="utf-8", errors="replace"):
+            if line.startswith("VERSION_ID="):
+                os_ver = line.split("=", 1)[1].strip().strip('"').strip("'")
+    os_nums = []
+    for part in os_ver.split("."):
+        num = ""
+        for ch in part:
+            if ch.isdigit():
+                num += ch
+            else:
+                break
+        os_nums.append(int(num) if num else 0)
+    while len(os_nums) < 2:
+        os_nums.append(0)
+    use_dmabuf = os_nums[0] > 24 or (os_nums[0] == 24 and os_nums[1] >= 4)
+    peer_rc, _ = run("lsmod | grep -q '^nvidia_peermem'")
+    peer_loaded = peer_rc == 0
+    peer_conf = "/etc/modules-load.d/nvidia-peermem.conf"
+    peer_persist = False
+    if os.path.isfile(peer_conf):
+        peer_persist = any(line.strip() == "nvidia_peermem" for line in open(peer_conf, encoding="utf-8", errors="replace"))
+    if use_dmabuf:
+        nvidia_rc, _ = run("modinfo nvidia >/dev/null 2>&1")
+        if nvidia_rc == 0 and not peer_loaded and not peer_persist:
+            items.append(("peermem", "DMA-BUF", True, "内核 DMA-BUF，未加载 nvidia_peermem"))
+        elif nvidia_rc != 0:
+            items.append(("peermem", "DMA-BUF", False, "驱动未安装"))
+        elif peer_loaded and peer_persist:
+            items.append(("peermem", "DMA-BUF", False, "仍加载并持久化 nvidia_peermem"))
+        elif peer_loaded:
+            items.append(("peermem", "DMA-BUF", False, "仍加载 nvidia_peermem"))
+        else:
+            items.append(("peermem", "DMA-BUF", False, "仍有 nvidia-peermem.conf"))
+    elif peer_loaded and peer_persist:
+        items.append(("peermem", "nvidia_peermem", True, "已加载，开机持久化"))
+    elif peer_loaded:
+        items.append(("peermem", "nvidia_peermem", False, "已加载但未持久化"))
+    elif peer_persist:
+        items.append(("peermem", "nvidia_peermem", False, "已持久化但未加载"))
+    else:
+        items.append(("peermem", "nvidia_peermem", False, ""))
+
+    _, acs_enabled = run("systemctl is-enabled disable-pcie-acs 2>/dev/null || true")
+    acs_rc, _ = run("lspci -vvv 2>/dev/null | grep ACSCtl | grep -q 'SrcValid+'")
+    acs_closed = acs_rc != 0
+    if acs_enabled == "enabled" and acs_closed:
+        items.append(("pci_acs", "PCI ACS", True, "已关闭，开机服务已启用"))
+    elif acs_enabled == "enabled":
+        items.append(("pci_acs", "PCI ACS", False, "仍有 SrcValid+"))
+    else:
+        items.append(("pci_acs", "PCI ACS", False, ""))
+
+    tokens = grub_tokens()
+    off = (("intel_iommu=off" in tokens) or ("amd_iommu=off" in tokens)) and ("iommu=off" in tokens) and ("iommu=pt" not in tokens)
+    pt = (("intel_iommu=on" in tokens) or ("amd_iommu=on" in tokens)) and ("iommu=pt" in tokens) and ("iommu=off" not in tokens)
+    if off or pt:
+        mode = "off" if off else "pt"
+        _, cmdline = run("cat /proc/cmdline")
+        detail = "GRUB iommu=%s" % mode
+        if ("iommu=%s" % mode) not in cmdline.split():
+            detail += "，重启后生效"
+        items.append(("iommu", "IOMMU", True, detail))
+    else:
+        items.append(("iommu", "IOMMU", False, ""))
+
+    watches = {
+        "fs.inotify.max_user_watches": "1048576",
+        "fs.inotify.max_user_instances": "8192",
+        "fs.inotify.max_queued_events": "65536",
+    }
+    inotify_ok = all(sysctl(k) == v for k, v in watches.items())
+    items.append(("inotify", "inotify", inotify_ok, "1048576 / 8192 / 65536" if inotify_ok else ""))
+
+    script = "/usr/local/sbin/roce-qos.sh"
+    text = open(script, encoding="utf-8", errors="replace").read() if os.path.isfile(script) else ""
+    _, roce_active = run("systemctl is-active roce-qos 2>/dev/null || true")
+    roce_ok = roce_active == "active"
+    if "DO_PFC=1" in text and roce_ok:
+        items.append(("pfc", "PFC", True, "roce-qos 已生效"))
+    elif "DO_PFC=1" in text:
+        items.append(("pfc", "PFC", False, "已配置但 roce-qos 未成功"))
+    else:
+        items.append(("pfc", "PFC", False, ""))
+    if "DO_ECN=1" in text and roce_ok:
+        items.append(("ecn", "ECN", True, "roce-qos 已生效"))
+    elif "DO_ECN=1" in text:
+        items.append(("ecn", "ECN", False, "已配置但 roce-qos 未成功"))
+    else:
+        items.append(("ecn", "ECN", False, ""))
+
+    gdr = pkgs.get("gdrdrv-dkms", "")
+    gpu_rc, _ = run("nvidia-smi -L >/dev/null 2>&1")
+    gdr_rc, _ = run("lsmod | grep -q '^gdrdrv'")
+    gdr_conf = "/etc/modules-load.d/gdrdrv.conf"
+    gdr_persist = False
+    if os.path.isfile(gdr_conf):
+        gdr_persist = any(line.strip() == "gdrdrv" for line in open(gdr_conf, encoding="utf-8", errors="replace"))
+    if gdr and gpu_rc != 0:
+        items.append(("gdrcopy", "GDRCopy", True, "%s，无 GPU 未加载 gdrdrv" % gdr))
+    elif gdr and gdr_rc == 0 and gdr_persist:
+        items.append(("gdrcopy", "GDRCopy", True, "%s，gdrdrv 已加载" % gdr))
+    elif gdr:
+        items.append(("gdrcopy", "GDRCopy", False, "已安装包但 gdrdrv 未加载或未持久化"))
+    else:
+        items.append(("gdrcopy", "GDRCopy", False, ""))
+
+    burn = os.environ["CHECK_GPU_BURN"]
+    items.append(("gpu_burn", "gpu-burn", os.path.isfile(burn), burn if os.path.isfile(burn) else ""))
+
+    dcgm = pkgs.get("datacenter-gpu-manager", "")
+    if dcgm:
+        _, dcgm_active = run("systemctl is-active nvidia-dcgm 2>/dev/null || true")
+        items.append(("dcgm", "DCGM", True, "%s，服务 %s" % (dcgm, dcgm_active or "未知")))
+    else:
+        items.append(("dcgm", "DCGM", False, ""))
+
+    ctk = pkgs.get("nvidia-container-toolkit", "")
+    items.append(("container_toolkit", "nvidia-container-toolkit", bool(ctk), ctk))
+
+    print(json.dumps([
+        {"comp": c, "name": n, "installed": ok, "detail": d}
+        for c, n, ok, d in items
+    ], ensure_ascii=False))
+    PY
+  args:
+    executable: /bin/bash
+  register: check_raw
   changed_when: false
 
-- name: 检查 rdma-core 原生栈
-  shell: dpkg-query -W -f='${Version}' rdma-core 2>/dev/null || echo "未安装"
-  register: check_rdma_core
-  changed_when: false
-
-- name: 检查 IB 设备
-  command: ibv_devices
-  register: check_ib_devices
-  changed_when: false
-  failed_when: false
-
-# --- nvidia_peermem / PCI ACS ---
-- name: 检查 nvidia_peermem 模块加载状态
-  shell: lsmod | grep -q '^nvidia_peermem' && echo "已加载" || echo "未加载"
-  register: check_peermem
-  changed_when: false
-
-- name: 检查 nvidia_peermem 开机自动加载配置
-  shell: |
-    if [ -f /etc/modules-load.d/nvidia-peermem.conf ] && grep -qx 'nvidia_peermem' /etc/modules-load.d/nvidia-peermem.conf; then
-      echo yes
-    else
-      echo no
-    fi
-  register: check_peermem_conf
-  changed_when: false
-
-- name: 检查 PCI ACS 状态
-  shell: |
-    if lspci -vvv 2>/dev/null | grep ACSCtl | grep -q "SrcValid+"; then
-      echo "已启用（多机测试需关闭）"
-    else
-      echo "未启用"
-    fi
-  register: check_acs
-  changed_when: false
-
-- name: 检查 ACS 开机持久化服务
-  command: systemctl is-enabled disable-pci-acs
-  register: check_acs_service
-  changed_when: false
-  failed_when: false
-
-- name: 设置组件安装状态汇总事实
+- name: 解析检查结果
   set_fact:
-    check_summary:
-      - { comp: "ofed",              name: "MLNX OFED（IB 网络驱动）",            installed: "{{ ('未安装' not in check_ofed.stdout) or ('未安装' not in check_rdma_core.stdout) }}" }
-      - { comp: "driver",           name: "NVIDIA GPU DRIVER（GPU 驱动）",      installed: "{{ check_pkgs.stdout is search('(^|\\s)nvidia-driver-') }}" }
-      - { comp: "peermem",           name: "NVIDIA_PEERMEM（GPUDirect RDMA）",   installed: "{{ (check_peermem.stdout | trim) == '已加载' }}" }
-      - { comp: "pci_acs",          name: "PCI ACS（关闭 ACS）",                 installed: "{{ '未启用' not in check_acs.stdout }}" }
-      - { comp: "cuda",              name: "CUDA TOOLKIT（计算工具链）",          installed: "{{ check_nvcc.rc == 0 }}" }
-      - { comp: "fabricmanager",     name: "NVIDIA FABRICMANAGER（NVLink 互联）", installed: "{{ '未安装' not in check_fm_ver.stdout }}" }
-      - { comp: "gpu_burn",          name: "GPU-BURN（压力测试）",                installed: "{{ check_gpu_burn.stat.exists }}" }
-      - { comp: "nccl",              name: "NCCL（集合通信库）",                  installed: "{{ '未安装' not in check_nccl.stdout }}" }
-      - { comp: "openmpi",           name: "OPENMPI（MPI 运行时）",              installed: "{{ check_openmpi.stat.exists }}" }
-      - { comp: "nccl_tests",        name: "NCCL-TESTS（带宽测试）",             installed: "{{ check_nccl_tests.stat.exists }}" }
-      - { comp: "dcgm",              name: "DCGM（GPU 监控）",                    installed: "{{ '未安装' not in check_dcgm.stdout }}" }
-      - { comp: "container_toolkit", name: "NVIDIA CONTAINER TOOLKIT（容器 GPU）", installed: "{{ '未安装' not in check_container_toolkit.stdout }}" }
+    check_summary: "{{ check_raw.stdout | from_json }}"
+    check_lines: []
 
-- name: 设置组件安装统计
+- name: 生成逐项结果
   set_fact:
-    check_installed_count: "{{ check_summary | selectattr('installed', 'equalto', true) | list | length }}"
-    check_total_count: "{{ check_summary | length }}"
+    check_lines: >-
+      {{ check_lines + [
+           item.name ~ '：' ~ ('已安装' if item.installed else '未安装')
+           ~ (('  ' ~ item.detail) if item.detail else '')
+         ] }}
+  loop: "{{ check_summary }}"
+  loop_control:
+    label: "{{ item.name }}"
 
-- name: 输出组件安装状态总表
-  debug:
-    msg:
-      - "================ 组件安装状态总表 ================"
-      - "主机: {{ inventory_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"
-      - "统计: 已安装 {{ check_installed_count }} / {{ check_total_count }}"
-      - "--------------------------------------------------"
-      - "{% for item in check_summary %}\
-           {{ item.comp }}: {{ '[已安装]' if item.installed else '[未安装]' }}\
-           {{ ',' if not loop.last else '' }}\
-         {% endfor %}"
+- name: 汇总已安装与未安装
+  set_fact:
+    check_installed: "{{ check_summary | selectattr('installed') | list }}"
+    check_missing: "{{ check_summary | rejectattr('installed') | list }}"
 
-- name: 输出组件检测报告
+- name: 列出已安装和未安装
   debug:
-    msg:
-      - "================ GPU 环境组件检测报告 ================"
-      - "主机: {{ inventory_hostname }} ({{ ansible_distribution }} {{ ansible_distribution_version }})"
-      - "------------------------------------------------------"
-      - "gcc: {{ check_gcc.stdout_lines[0] if check_gcc.rc == 0 else '未安装' }}"
-      - "cuda-keyring: {{ check_keyring.stdout }}"
-      - "------------------------------------------------------"
-      - "已安装软件包:"
-      - "{{ check_pkgs.stdout_lines | default(['（无）']) }}"
-      - "------------------------------------------------------"
-      - "dkms 模块: {{ check_dkms.stdout_lines | default(['无']) }}"
-      - "nvidia-smi: {{ '正常' if check_nvidia_smi.rc == 0 else '不可用（无 GPU 或驱动未加载）' }}"
-      - "nvcc: {{ check_nvcc.stdout_lines[-2] if check_nvcc.rc == 0 else '未安装' }}"
-      - "CUDA 环境变量: {{ '已配置' if check_cuda_profile.stat.exists else '未配置' }}"
-      - "------------------------------------------------------"
-      - "fabricmanager 服务: {{ check_fm_active.stdout | default('未知') }} (开机自启: {{ check_fm_enabled.stdout | default('未知') }})"
-      - "gpu_burn: {{ '已编译 ' + gpuenv_gpu_burn_dir + '/gpu_burn' if check_gpu_burn.stat.exists else '未编译' }}"
-      - "------------------------------------------------------"
-      - "NCCL: {{ check_nccl.stdout }}"
-      - "OpenMPI: {{ check_openmpi_ver.stdout_lines[0] if (check_openmpi.stat.exists and check_openmpi_ver.rc | default(1) == 0) else ('未安装' if not check_openmpi.stat.exists else '已安装（版本未知）') }}"
-      - "nccl-tests: {{ '已编译 ' + gpuenv_nccl_tests_dir + '/build' if check_nccl_tests.stat.exists else '未编译' }}"
-      - "------------------------------------------------------"
-      - "DCGM: {{ check_dcgm.stdout }} (服务: {{ check_dcgm_active.stdout | default('未知') }})"
-      - "nvidia-container-toolkit: {{ check_container_toolkit.stdout }}"
-      - "------------------------------------------------------"
-      - "OFED: {{ check_ofed.stdout }}"
-      - "rdma-core: {{ check_rdma_core.stdout }}"
-      - "IB 设备: {{ (check_ib_devices.stdout_lines[2:] | map('trim') | join(', ')) if (check_ib_devices.rc == 0 and check_ib_devices.stdout_lines | length > 2) else '无' }}"
-      - "------------------------------------------------------"
-      - "nvidia_peermem: {{ check_peermem.stdout | trim }} (开机自动加载: {{ '已配置' if (check_peermem_conf.stdout | trim) == 'yes' else '未配置' }})"
-      - "PCI ACS: {{ check_acs.stdout }} (开机持久化: {{ check_acs_service.stdout if (check_acs_service.rc | default(1) == 0 and check_acs_service.stdout | trim | length > 0) else '未配置' }})"
-
-- name: 输出已安装组件汇总
-  debug:
-    msg:
-      - "======================================================"
-      - "已安装组件（{{ check_installed_count }} / {{ check_total_count }}）:"
-      - "{{ check_summary | selectattr('installed', 'equalto', true) | map(attribute='name') | list }}"
-      - "未安装组件（{{ check_total_count | int - check_installed_count | int }}）:"
-      - "{{ check_summary | selectattr('installed', 'equalto', false) | map(attribute='name') | list }}"
-      - "======================================================"
+    msg: >-
+      {{
+        ['主机: ' ~ inventory_hostname ~ ' (' ~ ansible_distribution ~ ' ' ~ ansible_distribution_version ~ ')']
+        + check_lines
+        + [
+          '已安装（' ~ (check_installed | length | string) ~ '）: '
+          ~ ((check_installed | map(attribute='name') | list | join('、')) if (check_installed | length) > 0 else '无'),
+          '未安装（' ~ (check_missing | length | string) ~ '）: '
+          ~ ((check_missing | map(attribute='name') | list | join('、')) if (check_missing | length) > 0 else '无')
+        ]
+      }}

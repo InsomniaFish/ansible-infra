@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg viewBox="0 0 720 468" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="k8s-workflow-title k8s-workflow-desc" id="k8s-workflow-root">
   <title id="k8s-workflow-title">Kubernetes 使用流程</title>
-  <desc id="k8s-workflow-desc">先跑 kubernetes/ssh-init.sh，再改 inventory/inventory.ini。不需要可选组件就直接部署 kubernetes/k8s-cluster.yaml；需要时打开 k8s_enable_*。</desc>
+  <desc id="k8s-workflow-desc">先改 inventory/inventory.ini，再跑 kubernetes/ssh-init.sh。不需要可选组件就直接部署 kubernetes/k8s-cluster.yaml；需要时打开 k8s_enable_*。</desc>
   <defs>
     <style>@import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=Geist+Mono:wght@400;500&amp;family=Noto+Sans+SC:wght@500;600&amp;display=swap');
 #k8s-workflow-root { font-family: 'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif; color: #2d3142; }</style>
@@ -28,12 +28,12 @@
   <text x="212" y="54" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" text-anchor="middle">开始</text>
 
   <rect x="112" y="84" width="200" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-  <text x="212" y="102" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" text-anchor="middle">检查 SSH</text>
-  <text x="212" y="118" fill="#5a6580" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">kubernetes/ssh-init.sh</text>
+  <text x="212" y="102" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" text-anchor="middle">改主机清单</text>
+  <text x="212" y="118" fill="#5a6580" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">inventory/inventory.ini</text>
 
   <rect x="112" y="148" width="200" height="48" rx="6" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
-  <text x="212" y="166" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" text-anchor="middle">改主机清单</text>
-  <text x="212" y="182" fill="#5a6580" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">inventory/inventory.ini</text>
+  <text x="212" y="166" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" text-anchor="middle">检查 SSH</text>
+  <text x="212" y="182" fill="#5a6580" font-size="9" font-family="'Geist Mono', ui-monospace, monospace" text-anchor="middle">kubernetes/ssh-init.sh</text>
 
   <polygon points="212,212 296,244 212,276 128,244" fill="#ffffff" stroke="#2d3142" stroke-width="1"/>
   <text x="212" y="248" fill="#2d3142" font-size="12" font-weight="600" font-family="'Geist', 'Noto Sans SC', 'PingFang SC', 'Microsoft YaHei', sans-serif" text-anchor="middle">要可选组件?</text>
