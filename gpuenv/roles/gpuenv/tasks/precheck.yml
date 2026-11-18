@@ -32,4 +32,5 @@
       - "  container-toolkit : {{ gpuenv_install_container_toolkit }}{{ '（模式: ' + gpuenv_container_toolkit_install_mode + '）' if gpuenv_install_container_toolkit else '' }}"
       - "  NVSHMEM           : {{ gpuenv_install_nvshmem }}{{ '（模式: ' + gpuenv_nvshmem_install_mode + '，版本: ' + gpuenv_nvshmem_version + '）' if gpuenv_install_nvshmem else '' }}"
       - "  GDRCopy           : {{ gpuenv_install_gdrcopy }}{{ '（' + gpuenv_gdrcopy_version + '，gdrdrv）' if gpuenv_install_gdrcopy else '' }}"
+      - "  arpfanout         : {{ gpuenv_install_arpfanout }}{{ '（' + gpuenv_arpfanout_version + '）' if gpuenv_install_arpfanout else '' }}"
       - "强制重装: {{ gpuenv_force }}"

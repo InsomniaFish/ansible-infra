@@ -184,20 +184,32 @@
   tags: [gpuenv, driver]
 
 #=============================== 公共：重启（可选） ==============================
+# 只在开关打开且当前内核尚未加载目标版本时重启。已加载则重复执行 site.yml 不再重启。
+- name: 读取当前已加载的驱动版本
+  shell: |
+    if [ -r /proc/driver/nvidia/version ]; then
+      awk '/NVRM version/ {print $8; exit}' /proc/driver/nvidia/version
+    fi
+  register: driver_running_ver
+  changed_when: false
+  failed_when: false
+  when: gpuenv_reboot_after_driver | bool
+  tags: [gpuenv, driver]
+
 - name: 驱动安装后重启远程节点（可选）
   reboot:
     reboot_timeout: 600
   when:
-    - gpuenv_reboot_after_driver
-    - ansible_connection is defined and ansible_connection != 'local'
+    - gpuenv_reboot_after_driver | bool
+    - ansible_connection | default('') != 'local'
+    - gpuenv_driver_version not in (driver_running_ver.stdout | default('') | trim)
   tags: [gpuenv, driver]
 
-- name: 提示控制节点需手动重启（本地连接不自动重启）
-  debug:
-    msg: >-
-      {{ inventory_hostname }} 为控制节点（local 连接），已跳过自动重启。
-      驱动已安装，请稍后手动执行 reboot 加载内核模块。
+- name: 驱动安装后重启控制节点（可选，排在远程节点之后）
+  reboot:
+    reboot_timeout: 600
   when:
-    - gpuenv_reboot_after_driver
-    - ansible_connection is defined and ansible_connection == 'local'
+    - gpuenv_reboot_after_driver | bool
+    - ansible_connection | default('') == 'local'
+    - gpuenv_driver_version not in (driver_running_ver.stdout | default('') | trim)
   tags: [gpuenv, driver]

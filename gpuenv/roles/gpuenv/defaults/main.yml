@@ -29,6 +29,7 @@ gpuenv_install_dcgm: false              # DCGM 数据中心 GPU 管理器（硬�
 gpuenv_install_container_toolkit: false # nvidia-container-toolkit（容器内使用 GPU）
 gpuenv_install_nvshmem: false           # NVSHMEM 多 GPU/多节点通信库（含驱动参数配置）
 gpuenv_install_gdrcopy: false           # GDRCopy v2.6（gdrdrv 加载并开机持久化）
+gpuenv_install_arpfanout: false         # ARP/NDP 双发（arpfanout，bond 成员口双发）
 
 # --- 行为开关 ---
 gpuenv_nccl_tests_ssh_trust: true        # nccl-tests 多机测试前置：配置主机间 SSH 免密互信（置 false 跳过）
@@ -154,6 +155,8 @@ gpuenv_ofed_native_packages:
 gpuenv_base_dir: "/root/ansible-gpuenv"
 # 安装包存放目录（统一在 /opt 下，持久保留；/tmp 会被系统定期清理，不用于存放安装包）
 gpuenv_pkg_dir: "/opt/packages"
+gpuenv_arpfanout_version: "1.6"
+gpuenv_arpfanout_package: "{{ playbook_dir }}/packages/arpfanout-{{ gpuenv_arpfanout_version }}.tar.gz"
 # 构建目录（源码解压与编译统一在 /opt/build 下）
 gpuenv_build_dir: "/opt/build"
 # gpu-burn 源码与编译目录（位于构建目录下）

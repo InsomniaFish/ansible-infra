@@ -110,6 +110,11 @@ gpuenv_install_container_toolkit: true
 # online 走 apt；package 用 deb。
 gpuenv_container_toolkit_install_mode: online
 
+# 是否安装 ARP/NDP 双发。压缩包先放到 /opt/packages，再解压到 /opt/build 后执行 check.sh、install.sh。
+gpuenv_install_arpfanout: true
+# 发行包版本，对应 packages/arpfanout-<版本>.tar.gz。
+gpuenv_arpfanout_version: "1.6"
+
 
 #===============================================================================
 # 全量离线安装（整段注释，不生效）
@@ -208,6 +213,10 @@ gpuenv_container_toolkit_install_mode: online
 # gpuenv_container_toolkit_install_mode: package
 # nvidia-container-toolkit deb 的本地路径。
 # gpuenv_container_toolkit_package: /opt/packages/nvidia-container-toolkit.deb
+# 是否安装 ARP/NDP 双发。压缩包先放到 /opt/packages，再解压到 /opt/build。
+# gpuenv_install_arpfanout: true
+# 发行包版本，对应 packages/arpfanout-<版本>.tar.gz。
+# gpuenv_arpfanout_version: "1.6"
 # true 时忽略已安装检测并重装。
 # gpuenv_force: false
 # 供 uninstall.yml 使用。core、all，或逗号分隔的组件名。
