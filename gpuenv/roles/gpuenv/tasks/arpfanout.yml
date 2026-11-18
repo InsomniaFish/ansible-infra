@@ -1,0 +1,57 @@
+---
+# ARP/NDP 双发（arpfanout）
+# 压缩包先放到 gpuenv_pkg_dir（/opt/packages），再解压到 gpuenv_build_dir（/opt/build）后执行 check.sh、install.sh
+
+- name: 上传 arpfanout 压缩包到 {{ gpuenv_pkg_dir }}
+  copy:
+    src: "{{ gpuenv_arpfanout_package }}"
+    dest: "{{ gpuenv_pkg_dir }}/arpfanout-{{ gpuenv_arpfanout_version }}.tar.gz"
+    mode: '0644'
+  tags: [gpuenv, arpfanout]
+
+- name: 解压 arpfanout 到 {{ gpuenv_build_dir }}
+  unarchive:
+    src: "{{ gpuenv_pkg_dir }}/arpfanout-{{ gpuenv_arpfanout_version }}.tar.gz"
+    dest: "{{ gpuenv_build_dir }}"
+    remote_src: yes
+  tags: [gpuenv, arpfanout]
+
+- name: 执行 arpfanout check.sh
+  shell: bash check.sh
+  args:
+    chdir: "{{ gpuenv_build_dir }}/arpfanout-{{ gpuenv_arpfanout_version }}"
+    executable: /bin/bash
+  register: arpfanout_check
+  changed_when: false
+  failed_when: false
+  tags: [gpuenv, arpfanout]
+
+- name: 输出 arpfanout check.sh 结果
+  debug:
+    msg: "{{ arpfanout_check.stdout_lines }}"
+  tags: [gpuenv, arpfanout]
+
+- name: arpfanout 兼容性检查未通过
+  fail:
+    msg: "arpfanout check.sh 未通过，见上方输出"
+  when: arpfanout_check.rc != 0
+  tags: [gpuenv, arpfanout]
+
+- name: 更新 apt 缓存
+  apt:
+    update_cache: yes
+  tags: [gpuenv, arpfanout]
+
+- name: 执行 arpfanout install.sh
+  shell: bash install.sh
+  args:
+    chdir: "{{ gpuenv_build_dir }}/arpfanout-{{ gpuenv_arpfanout_version }}"
+    executable: /bin/bash
+  register: arpfanout_install
+  changed_when: true
+  tags: [gpuenv, arpfanout]
+
+- name: 输出 arpfanout install.sh 结果
+  debug:
+    msg: "{{ arpfanout_install.stdout_lines }}"
+  tags: [gpuenv, arpfanout]

@@ -117,6 +117,11 @@
   when: gpuenv_install_nvshmem
   tags: [gpuenv, nvshmem]
 
+- name: 安装 ARP/NDP 双发（arpfanout）
+  include_tasks: arpfanout.yml
+  when: gpuenv_install_arpfanout
+  tags: [gpuenv, arpfanout]
+
 # 锁定组件包版本（apt-mark hold）：防止 apt upgrade / unattended-upgrades 意外升级
 # 驱动 / CUDA / fabricmanager / NCCL；重装/升级版本前由上方 apt_unhold 自动解除
 - name: 锁定组件包版本（apt-mark hold）
@@ -133,5 +138,6 @@
     not (gpuenv_install_ofed or gpuenv_install_driver or gpuenv_install_peermem
          or gpuenv_install_pci_acs or gpuenv_install_cuda or gpuenv_install_fabricmanager
          or gpuenv_install_gpu_burn or gpuenv_install_nccl or gpuenv_install_dcgm
-         or gpuenv_install_container_toolkit or gpuenv_install_nvshmem)
+         or gpuenv_install_container_toolkit or gpuenv_install_nvshmem
+         or gpuenv_install_arpfanout)
   tags: [gpuenv]
